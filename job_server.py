@@ -2,6 +2,7 @@
 assert __name__ == '__main__'
 
 from common import *
+import net_utils as nu
 
 import itertools
 
@@ -11,11 +12,15 @@ worker_queue_by_key = {}
 
 # --
 
+#LockingLogHandler.install()
+
+# --
+
 class Job(object):
     next_id = itertools.count()
 
-    def __init__(self, conn, hostname, key):
-        self.conn = conn
+    def __init__(self, pconn, hostname, key):
+        self.pconn = pconn
         self.hostname = hostname
         self.key = key
 
@@ -33,7 +38,7 @@ class Job(object):
 
 
     def set_active(self, new_val):
-        v_log(1, '{}.set_active({})', self, new_val)
+        logging.info('{}.set_active({})'.format(self, new_val))
         if self._active == new_val:
             return
         self._active = new_val
@@ -54,8 +59,8 @@ class Job(object):
 class Worker(object):
     next_id = itertools.count()
 
-    def __init__(self, conn, hostname, keys, addrs):
-        self.conn = conn
+    def __init__(self, pconn, hostname, keys, addrs):
+        self.pconn = pconn
         self.hostname = hostname
         self.keys = keys
         self.addrs = addrs
@@ -69,7 +74,7 @@ class Worker(object):
 
 
     def set_active(self, new_val):
-        v_log(1, '{}.set_active({})', self, new_val)
+        logging.info('{}.set_active({})'.format(self, new_val))
         if self._active == new_val:
             return
         self._active = new_val
@@ -87,18 +92,18 @@ class Worker(object):
 
 # --
 
-def job_accept(conn):
+def job_accept(pconn):
     job = None
     try:
-        hostname = recv_bytes(conn).decode()
-        key = recv_bytes(conn)
+        hostname = pconn.recv().decode()
+        key = pconn.recv()
 
-        job = Job(conn, hostname, key)
+        job = Job(pconn, hostname, key)
         while True:
             with g_cvar:
                 job.set_active(True)
 
-            success = recv_t(conn, BOOL_T)
+            success = pconn.recv_t(BOOL_T)
             if success:
                 break
     finally:
@@ -108,16 +113,16 @@ def job_accept(conn):
 
 # --
 
-def worker_accept(conn):
+def worker_accept(pconn):
     worker = None
     try:
-        wap = WorkerAdvertPacket.decode(recv_bytes(conn))
-        worker = Worker(conn, wap.hostname, wap.keys, wap.addrs)
+        wap = WorkerAdvertPacket.decode(pconn.recv())
+        worker = Worker(pconn, wap.hostname, wap.keys, wap.addrs)
 
         with g_cvar:
             worker.set_active(True)
 
-        recv_t(conn, BOOL_T) # Fails on socket close.
+        pconn.recv_t(BOOL_T) # Fails on socket close.
     finally:
         if worker:
             with g_cvar:
@@ -152,12 +157,12 @@ def matchmake_loop():
                 g_cvar.wait()
                 continue
 
-            v_log(0, 'Matched ({}, {})'.format(job, worker))
+            locked_print('Matched ({}, {})'.format(job, worker))
 
             wap = WorkerAssignmentPacket()
             wap.hostname = worker.hostname
             wap.addrs = worker.addrs
-            send_bytes(job.conn, wap.encode())
+            job.pconn.send(wap.encode())
 
 
 threading.Thread(target=matchmake_loop, daemon=True).start()
@@ -165,20 +170,28 @@ threading.Thread(target=matchmake_loop, daemon=True).start()
 # --
 
 def th_on_accept(conn, addr):
-    set_keepalive(conn)
-    conn.settimeout(None)
-    conn_type = recv_bytes(conn)
+    pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+    logging.warning('pconn')
+    try:
+        conn_type = pconn.recv()
+    except socket.timeout:
+        logging.warning('timeout')
+        return
+
+    logging.warning('conn_type')
     if conn_type == b'job':
-        return job_accept(conn)
+        return job_accept(pconn)
     if conn_type == b'worker':
-        return worker_accept(conn)
+        return worker_accept(pconn)
     assert False, conn_type
 
 # --
 
 addr = CONFIG['JOB_SERVER_ADDR']
-server = Server([addr], target=th_on_accept)
+server = nu.Server([addr], target=th_on_accept)
 server.listen_until_shutdown()
 wait_for_keyboard()
 server.shutdown()
+
+dump_thread_stacks()
 exit(0)

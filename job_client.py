@@ -2,33 +2,53 @@
 assert __name__ != '__main__'
 
 from common import *
+import net_utils as nu
 
 TIMEOUT = 300
 
 # --
 
-def log_to_worker_failover(text):
-    if Globals.VERBOSE >= 2:
-        Globals.PRINT_FUNC('<<' + text + '>>')
+class LogToWorker(logging.Handler):
+    def __init__(self, addr):
+        super().__init__()
 
-log_conn = False
-log_conn_lock = threading.RLock()
+        self.addr = addr
+        self.lock = threading.RLock()
+        self.pconn = None
 
-def log_to_worker(text):
-    global log_conn
-    with log_conn_lock:
-        if log_conn == False:
-            log_conn = None
-            addr = CONFIG['WORKER_LOG_ADDR']
-            log_conn = connect_any([addr], timeout=CONFIG['TIMEOUT_TO_LOG'])
-            if log_conn:
-                log_conn.settimeout(None)
 
-        if log_conn == None:
-            log_to_worker_failover(text)
-            return
+    def close(self):
+        with self.lock:
+            if self.pconn:
+                self.pconn.nuke()
+        super().close()
 
-        send_bytes(log_conn, text.encode())
+
+    def emit(self, record):
+        text = self.format(record)
+        with self.lock:
+            if self.pconn == None:
+                self.pconn = False
+                conn = nu.connect_any([self.addr], timeout=CONFIG['TIMEOUT_TO_LOG'])
+                if conn:
+                    self.pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+
+            if not self.pconn:
+                return
+
+            print('sending', text)
+            self.pconn.send(text.encode())
+            print('sent')
+
+
+    @staticmethod
+    def install():
+        logger = logging.getLogger()
+        logger.addHandler(LogToWorker(CONFIG['WORKER_LOG_ADDR']))
+
+        backup_handler = logging.StreamHandler()
+        #backup_handler.setLevel(logging.CRITICAL)
+        logger.addHandler(backup_handler)
 
 # --
 
@@ -36,49 +56,45 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
     key = make_key(mod_name, subkey)
 
     addr = CONFIG['JOB_SERVER_ADDR']
-    server_conn = connect_any([addr], timeout=CONFIG['TIMEOUT_CLIENT_TO_SERVER'])
+    server_conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_CLIENT_TO_SERVER'])
     if not server_conn:
-        v_log(0, 'Failed to connect to server: {}', addr)
+        logging.error('Failed to connect to server: {}'.format(addr))
         return False
-
-    server_conn.settimeout(None)
-    set_keepalive(server_conn)
+    server_pconn = nu.PacketConn(server_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
     try:
-        send_bytes(server_conn, b'job')
+        server_pconn.send(b'job')
 
-        send_bytes(server_conn, CONFIG['HOSTNAME'].encode())
-        send_bytes(server_conn, key)
+        server_pconn.send(CONFIG['HOSTNAME'].encode())
+        server_pconn.send(key)
 
         while True:
-            wap = WorkerAssignmentPacket.decode(recv_bytes(server_conn))
+            wap = WorkerAssignmentPacket.decode(server_pconn.recv())
 
             addrs = [x.addr for x in wap.addrs]
-            worker_conn = connect_any(addrs, timeout=CONFIG['TIMEOUT_TO_WORKER'])
+            worker_conn = nu.connect_any(addrs, timeout=CONFIG['TIMEOUT_TO_WORKER'])
             if not worker_conn:
-                v_log(0, 'Failed to connect to worker: {}@{}', wap.hostname, addrs)
-                send_t(server_conn, BOOL_T, False)
+                logging.error('Failed to connect to worker: {}@{}'.format(wap.hostname, addrs))
+                server_pconn.send_t(BOOL_T, False)
                 continue
-
-            worker_conn.settimeout(None)
-            set_keepalive(worker_conn)
+            worker_pconn = nu.PacketConn(worker_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
             try:
-                send_bytes(worker_conn, CONFIG['HOSTNAME'].encode())
-                send_bytes(worker_conn, key)
+                worker_pconn.send(CONFIG['HOSTNAME'].encode())
+                worker_pconn.send(key)
 
-                ok = fn_pydra_job_client(worker_conn, subkey, *args)
+                ok = fn_pydra_job_client(worker_pconn, subkey, *args)
             except socket.error:
                 ok = False
             finally:
-                nuke_socket(worker_conn)
+                worker_pconn.nuke()
 
-            send_t(server_conn, BOOL_T, bool(ok))
+            server_pconn.send_t(BOOL_T, bool(ok))
             if not ok:
                 continue
             break
     except socket.error:
-        v_log(1, 'server_conn died:\n{}', traceback.format_exc())
+        logging.warning('server_conn died:\n' + traceback.format_exc())
     finally:
-        nuke_socket(server_conn)
+        server_pconn.nuke()
 

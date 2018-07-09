@@ -18,13 +18,13 @@ def pydra_shim(fn_dispatch, delay):
     return fn_dispatch(b'', delay)
 
 
-def pydra_job_client(conn, subkey, delay):
-    common.send_t(conn, common.F64_T, delay)
-    common.recv_bytes(conn)
+def pydra_job_client(pconn, subkey, delay):
+    pconn.send_t(common.F64_T, delay)
+    pconn.recv() # To know when we are done.
     return True
 
 
-def pydra_job_worker(conn, subkey):
-    delay = common.recv_t(conn, common.F64_T)
+def pydra_job_worker(pconn, subkey):
+    delay = pconn.recv_t(common.F64_T)
     time.sleep(delay)
-    common.send_bytes(conn, b'')
+    pconn.send(b'\0')
