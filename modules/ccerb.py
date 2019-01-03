@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-assert __name__ == '__main__'
+assert __name__ != '__main__'
 
 import os
 import socket
@@ -9,6 +9,24 @@ import threading
 import time
 
 from common import *
+
+# --
+
+def get_cc_key(path):
+    p = subprocess.run([path, '--version'], capture_output=True)
+    if p.stderr:
+        key = p.stderr # cl
+    else:
+        key = p.stdout # cc-like
+    (key, _) = key.split(b'\n', 1)
+    (_, key) = key.split(b' ', 1)
+
+    logging.info('{} -> {}'.format(path, key))
+    return key
+
+# --
+# Find some keys!
+
 
 # --
 
@@ -22,10 +40,10 @@ class ExShimOut(Exception):
 SOURCE_EXTS = ['c', 'cc', 'cpp']
 BOTH_ARGS = ['-nologo', '-Tc', '-TC', '-Tp', '-TP']
 
-def process_args(args):
-    args = args[:]
+def process_args(cc_args):
+    args = cc_args[:]
     if not args:
-        raise ExShimOut('no args')
+        raise ExShimOut('no cc_args')
 
     source_file_name = None
     is_compile_only = False
@@ -42,9 +60,8 @@ def process_args(args):
             is_compile_only = True
             continue
 
-        if cur == '-showIncludes':
+        if cur in ('-H', '-showIncludes'):
             preproc.append(cur)
-            preproc.append('-nologo')
             continue
 
         if cur in BOTH_ARGS:
@@ -104,19 +121,6 @@ def process_args(args):
 
     return (preproc, compile, source_file_name)
 
-# --
-
-def preproc(cc_bin, preproc_args):
-    preproc_args = [cc_bin] + preproc_args
-    p = subprocess.run(preproc_args, capture_output=True)
-
-    if p.returncode != 0:
-        sys.stderr.write(p.stderr)
-        sys.stdout.write(p.stdout)
-        exit(p.returncode)
-
-    return (p.stdout, p.stderr)
-
 ####
 '''
 EXAMPLE_CL_ARGS = [
@@ -157,46 +161,86 @@ EXAMPLE_CL_ARGS = [
     'c:/dev/mozilla/gecko-cinn3-obj/dom/canvas/Unified_cpp_dom_canvas1.cpp'
 ]
 '''
-####################
+# ------------------------------------------------------------------------------
 
-# sys.argv: [ccerb.py, cl, foo.c]
+CC_BY_KEY = {}
 
-nice_down()
+def pydra_get_subkeys():
+    cc_list = [
+        'gcc',
+        'gcc-6',
+        'gcc-7',
+        'clang',
+        'clang-3',
+        'clang-4',
+        'clang-5',
+        'cl',
+    ] + CONFIG['CC_LIST']
 
-args = sys.argv[1:]
-assert args
-#args = EXAMPLE_CL_ARGS
-#print('args:', args)
+    for path in cc_list:
+        try:
+            key = get_cc_key(path)
+        except FileNotFoundError:
+            continue
+        CC_BY_KEY[key] = path
 
-# --
+    assert CC_BY_KEY
+    return CC_BY_KEY.keys()
 
-try:
-    if not args:
-        raise ExShimOut('no args')
+# -
 
-    v_log(3, '<args: {}>>', args)
+def pydra_shim(fn_dispatch, *mod_args):
+    start = time.time()
+    def timer_str():
+        now = time.time()
+        diff = now - start
+        return '{:.3f}s'.format(diff)
 
-    cc_bin = args[0]
-    cc_args = args[1:]
+    logging.debug('<args: {}>'.format(args))
 
-    raise ExShimOut('todo')
+    # =
 
+    if not mod_args:
+        raise ExShimOut('no mod_args')
 
-    cc_key = ccerb.get_job_key(cc_bin)
+    cc_bin = mod_args[0]
+    cc_args = mod_args[1:]
 
-    ccerb.log_time_split(21)
+    cc_key = get_cc_key(cc_bin)
+    logging.info('<[{}] cc_key: {}>'.format(timer_str(), cc_key))
 
-    ####
+    # -
 
     (preproc_args, compile_args, source_file_name) = process_args(cc_args)
-    info = 'ccerb-preproc: {}'.format(source_file_name)
 
-    ccerb.v_log(3, '<<preproc_args: {}>>', preproc_args)
-    ccerb.v_log(3, '<<compile_args: {}>>', compile_args)
+    logging.info('<[{}] source_file_name: {}>'.format(timer_str(), source_file_name))
+    logging.debug('<<preproc_args: {}>>', preproc_args)
+    logging.debug('<<compile_args: {}>>', compile_args)
 
     has_show_includes = '-showIncludes' in preproc_args
+    if has_show_includes:
+        preproc_args.append('-nologo')
 
-    ####
+    # -
+
+    p = subprocess.run([cc_bin] + preproc_args, capture_output=True)
+    if p.returncode != 0:
+        raise ExShimOut('preproc failed') # Safer to shim out.
+
+    stdout_prefix = b''
+    if has_show_includes:
+        stdout_prefix = p.stderr
+
+    # -
+
+    ret = fn_dispatch(cc_key, compile_args, source_file_name, preproc_text, stdout_prefix)
+    if ret == None:
+        raise ExShimOut('dispatch failed')
+
+    # -
+
+
+    # =
 
     ccerb.acquire_remote_job(conn, 'wait', PREPROC_PRIORITY)
 
@@ -217,6 +261,9 @@ try:
         add_remote_addr((host, port), cc_key, DEDICATED_COMPILE_PRIORITY)
 
     ####
+
+
+    return fn_dispatch(b'', delay)
 
     remote_conn = remotes_future.await()
     ccerb.v_log(2, 'compiler addr: {}', remote_conn.getpeername())
@@ -246,7 +293,15 @@ except ExShimOut as e:
     v_log(2, '<<shimming out args: {}>>', args)
     pass
 
-####
 
-p = subprocess.run(args)
-exit(p.returncode)
+
+def pydra_job_client(pconn, subkey, delay):
+    pconn.send_t(common.F64_T, delay)
+    pconn.recv() # To know when we are done.
+    return True
+
+
+def pydra_job_worker(pconn, subkey):
+    delay = pconn.recv_t(common.F64_T)
+    time.sleep(delay)
+    pconn.send(b'\0')

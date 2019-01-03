@@ -37,10 +37,8 @@ mod_name = sys.argv[-1]
 logging.info('<<mod_name: %s>>', mod_name)
 
 mod = pydra_mod.LoadModule(mod_name)
-subkeys = mod.pydra_get_subkeys()
 
 def fn_dispatch(subkey, *args):
-    assert subkey in subkeys, (subkey, subkeys)
     return job_client.dispatch(mod_name, subkey, mod.pydra_job_client, *args)
 
 ok = mod.pydra_shim(fn_dispatch, *mod_args)

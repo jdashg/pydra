@@ -54,6 +54,7 @@ DEFAULT_CONFIG = {
     'TIMEOUT_TO_LOG': 0.300,
     'KEEPALIVE_TIMEOUT': 1.000,
     'LOG_LEVEL': logging.DEBUG #logging.WARNING,
+    'CC_LIST': []
 }
 
 # --
@@ -224,53 +225,6 @@ class WorkerAssignmentPacket(Packetable):
         self.addrs = [Address.decode(br.unpack_bytes()) for _ in range(num_addr)]
 
 # --
-'''
-class Address(Packetable):
-    def __init__(self, af=None, addr=None, gai=None):
-        if gai:
-            (af, _, _, _, addr) = gai
-        self.af = af
-        self.addr = addr
-
-
-    def encode_into(self, bw):
-        bw.pack_t(U8_T, int(self.af))
-
-        bw.pack_bytes(self.addr[0].encode())
-        bw.pack_t(U16_T, self.addr[1])
-        if self.af == socket.AF_INET6:
-            bw.pack_t(U32_T, self.addr[2]) # flow info
-            bw.pack_t(U32_T, self.addr[3]) # scope id
-        else:
-            assert self.af == socket.AF_INET, self.af
-
-
-    def decode_from(self, br):
-        self.af = socket.AddressFamily(br.unpack_t(U8_T))
-
-        host = br.unpack_bytes().decode()
-        port = br.unpack_t(U16_T)
-        if self.af == socket.AF_INET:
-            self.addr = (host, port)
-        elif self.af == socket.AF_INET6:
-            flow_info = br.unpack_t(U32_T)
-            scope_id = br.unpack_t(U32_T)
-            self.addr = (host, port, flow_info, scope_id)
-        else:
-            assert False, self.af
-
-
-    @staticmethod
-    def test():
-        gp = Address(gai=(socket.AF_INET, 0, 0, '', ('localhost', 49392)))
-        b = gp.encode()
-        gp2 = Address.decode(b)
-        assert (gp.af, gp.addr) == (gp2.af, gp2.addr), ((gp.af, gp.addr), (gp2.af, gp2.addr))
-        b2 = gp2.encode()
-        assert b == b2, (b.hex(), b2.hex())
-
-Address.test()
-'''
 
 class Address(Packetable):
     def __init__(self, addr=None):

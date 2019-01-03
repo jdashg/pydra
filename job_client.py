@@ -58,8 +58,7 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
     addr = CONFIG['JOB_SERVER_ADDR']
     server_conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_CLIENT_TO_SERVER'])
     if not server_conn:
-        logging.error('Failed to connect to server: {}'.format(addr))
-        return False
+        raise ExDispatchFailed('Failed to connect to server: {}'.format(addr))
     server_pconn = nu.PacketConn(server_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
     try:
@@ -83,18 +82,19 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
                 worker_pconn.send(CONFIG['HOSTNAME'].encode())
                 worker_pconn.send(key)
 
-                ok = fn_pydra_job_client(worker_pconn, subkey, *args)
+                ret = fn_pydra_job_client(worker_pconn, subkey, *args)
             except socket.error:
-                ok = False
+                ret = None
             finally:
                 worker_pconn.nuke()
-
+            ok = ret != None
             server_pconn.send_t(BOOL_T, bool(ok))
-            if not ok:
-                continue
-            break
+            if ok:
+                return ret
+            continue
     except socket.error:
         logging.warning('server_conn died:\n' + traceback.format_exc())
     finally:
         server_pconn.nuke()
+    return None
 
