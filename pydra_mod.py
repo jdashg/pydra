@@ -135,7 +135,7 @@ class JobOutputs(object):
 
 MODULE_DIRS = [
     PYDRA_HOME / 'modules',
-    PosixPath(__file__).parent / 'modules',
+    Path(__file__).parent / 'modules',
 ]
 
 def LoadModule(mod_name):

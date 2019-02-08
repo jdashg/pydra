@@ -15,6 +15,11 @@ import traceback
 
 # --
 
+class ExSocketEOF(Exception):
+    pass
+
+# --
+
 def recv_n(conn, n):
     ret = bytearray(n)
     if n:
@@ -22,7 +27,7 @@ def recv_n(conn, n):
         while view:
             got = conn.recv_into(view)
             if not got:
-                raise ExSocketClosed()
+                raise ExSocketEOF()
             view = view[got:]
     return bytes(ret)
 
@@ -35,11 +40,6 @@ U32_T = struct.Struct('<I')
 U64_T = struct.Struct('<Q')
 BOOL_T = struct.Struct('<?')
 F64_T = struct.Struct('<d')
-
-# --
-
-class ExSocketClosed(Exception):
-    pass
 
 # --
 
@@ -125,9 +125,9 @@ def nuke_socket(conn):
         conn.shutdown(socket.SHUT_RDWR)
     except socket.error:
         pass
+
     try:
         conn.close()
-        pass
     except socket.error:
         pass
 
@@ -216,7 +216,7 @@ class Server(object):
     def _th_on_accept(self, conn, addr):
         try:
             self.fn_on_accept(conn=conn, addr=addr, *(self.on_accept_args))
-        except ExSocketClosed as _:
+        except ExSocketEOF as _:
             pass
         except Exception as e:
             traceback.print_exc()
@@ -286,19 +286,33 @@ class PacketConn(object):
         if timeout != False:
             self.set_timeout(timeout, keepalive=keepalive)
 
+    LONG_LEN_THRESHOLD = 0xfe
+    KEEP_ALIVE_VAL = 0xff
 
     def send(self, b):
-        assert b, '0-size packets are keep-alives, and will not be recv\'d.'
         with self.slock:
-            send_bytes(self.conn, b)
+            if len(b) < self.LONG_LEN_THRESHOLD:
+                send_t(self.conn, U8_T, len(b))
+            else:
+                send_t(self.conn, U8_T, self.LONG_LEN_THRESHOLD)
+                send_t(self.conn, U64_T, len(b))
+            if len(b):
+                self.conn.sendall(b)
 
 
     def recv(self):
         with self.rlock:
             while True:
-                b = recv_bytes(self.conn)
-                if b: # 0-size packets are keep-alives.
-                    return b
+                b_len = recv_t(self.conn, U8_T)
+                if b_len == self.KEEP_ALIVE_VAL:
+                    continue
+                if b_len == self.LONG_LEN_THRESHOLD:
+                    b_len = recv_t(self.conn, U64_T)
+
+                b = b''
+                if b_len:
+                    b = recv_n(self.conn, b_len)
+                return b
 
 
     def send_t(self, t, v):
@@ -332,10 +346,38 @@ class PacketConn(object):
             self.set_keepalive(keepalive)
 
 
+    # Ideally, this is called by the client/last recipient.
+    # (see https://stackoverflow.com/questions/3757289/tcp-option-so-linger-zero-when-its-required)
+    def shutdown_after_recv(self):
+        self.set_keepalive(False)
+        self.conn.shutdown(socket.SHUT_RDWR)
+        self.conn.close()
+
+
+    def shutdown_after_send(self):
+        self.set_keepalive(False)
+        self.conn.shutdown(socket.SHUT_WR)
+        try:
+            self.recv()
+            assert False
+        except ExSocketEOF:
+            pass
+        self.conn.shutdown(socket.SHUT_RD)
+        self.conn.close()
+
+
     def nuke(self):
         self.set_keepalive(False)
-        nuke_socket(self.conn)
 
+        try:
+            self.conn.shutdown(socket.SHUT_RDWR)
+        except socket.error:
+            pass
+
+        try:
+            self.conn.close()
+        except socket.error:
+            pass
 
 
     def _th_keepalive(self):
@@ -352,7 +394,7 @@ class PacketConn(object):
                     if not self.keepalive_thread:
                         return
                     with self.slock:
-                        send_bytes(self.conn, b'')
+                        send_t(self.conn, U8_T, self.KEEP_ALIVE_VAL)
 
             except OSError: # Remote socket shutdown?
                 pass

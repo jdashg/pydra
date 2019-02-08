@@ -33,6 +33,8 @@ def advert_to_server():
         return
     mods_by_key = get_mods_by_key()
     keys = list(mods_by_key.keys())
+    logging.info('keys: {}'.format(keys))
+
     gais = work_server.get_gais()
     addrs = [Address(x[4]) for x in gais]
     if not (keys and addrs):
@@ -61,14 +63,14 @@ def advert_to_server():
             new_mods_by_key = get_mods_by_key()
             new_gais = work_server.get_gais()
             if new_mods_by_key != mods_by_key:
-                logging.info('Keys changed.')
+                logging.info('Keys changed: {}'.format(new_mods_by_key))
                 return
             if new_gais != gais:
                 logging.info('Gais changed.')
                 return
 
             time.sleep(1.0)
-    except ExSocketClosed:
+    except nu.ExSocketEOF:
         logging.info('Server closed socket.')
         pass
     except socket.error:
@@ -81,8 +83,6 @@ def advert_to_server_loop():
         advert_to_server()
         time.sleep(1.0)
         logging.warning('Reconnecting to server...')
-
-threading.Thread(target=advert_to_server_loop, daemon=True).start()
 
 # --
 
@@ -111,7 +111,6 @@ def th_on_accept_work(conn, addr):
 
 log_conn_counter = itertools.count(1)
 
-
 def th_on_accept_log(conn, addr):
     conn_id = next(log_conn_counter)
     conn_prefix = '[log {}] '.format(conn_id)
@@ -123,9 +122,11 @@ def th_on_accept_log(conn, addr):
             text = pconn.recv().decode()
             text = text.replace('\n', '\n' + ' '*len(conn_prefix))
             locked_print(conn_prefix, text)
+    except (socket.error, nu.ExSocketEOF):
+        pass
     finally:
         logging.info(conn_prefix + '<disconnected>')
-
+        pconn.nuke()
 
 # --
 
@@ -136,6 +137,8 @@ log_server.listen_until_shutdown()
 addr = CONFIG['WORKER_ADDR']
 work_server = nu.Server([addr], target=th_on_accept_work)
 work_server.listen_until_shutdown()
+
+threading.Thread(target=advert_to_server_loop, daemon=True).start()
 
 # --
 

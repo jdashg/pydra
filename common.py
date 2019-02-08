@@ -17,7 +17,7 @@ import traceback
 
 # --
 
-PYDRA_HOME = pathlib.PosixPath.home() / '.pydra'
+PYDRA_HOME = pathlib.Path.home() / '.pydra'
 CONFIG_PATH = PYDRA_HOME / 'config.py'
 
 # --
@@ -34,7 +34,6 @@ class LockingLogHandler(logging.Handler):
     def emit(self, record):
         text = self.format(record)
         locked_print(text)
-
 
     @staticmethod
     def install():
@@ -53,8 +52,8 @@ DEFAULT_CONFIG = {
     'TIMEOUT_TO_WORKER': 0.300,
     'TIMEOUT_TO_LOG': 0.300,
     'KEEPALIVE_TIMEOUT': 1.000,
-    'LOG_LEVEL': logging.DEBUG #logging.WARNING,
-    'CC_LIST': []
+    'LOG_LEVEL': logging.DEBUG, #logging.WARNING,
+    'CC_LIST': ['S:\dev\clcc\cl.bat'],
 }
 
 # --

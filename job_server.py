@@ -122,7 +122,10 @@ def worker_accept(pconn):
         with g_cvar:
             worker.set_active(True)
 
-        pconn.recv_t(BOOL_T) # Fails on socket close.
+        try:
+            pconn.recv_t(BOOL_T) # Fails on socket close.
+        except socket.error:
+            pass
     finally:
         if worker:
             with g_cvar:
@@ -171,14 +174,12 @@ threading.Thread(target=matchmake_loop, daemon=True).start()
 
 def th_on_accept(conn, addr):
     pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
-    logging.warning('pconn')
     try:
         conn_type = pconn.recv()
     except socket.timeout:
         logging.warning('timeout')
         return
 
-    logging.warning('conn_type')
     if conn_type == b'job':
         return job_accept(pconn)
     if conn_type == b'worker':

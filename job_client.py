@@ -5,6 +5,7 @@ from common import *
 import net_utils as nu
 
 TIMEOUT = 300
+LOCAL_SPEW = False
 
 # --
 
@@ -20,7 +21,7 @@ class LogToWorker(logging.Handler):
     def close(self):
         with self.lock:
             if self.pconn:
-                self.pconn.nuke()
+                self.pconn.shutdown_after_send()
         super().close()
 
 
@@ -36,9 +37,9 @@ class LogToWorker(logging.Handler):
             if not self.pconn:
                 return
 
-            print('sending', text)
+            #print('sending', text)
             self.pconn.send(text.encode())
-            print('sent')
+            #print('sent')
 
 
     @staticmethod
@@ -47,7 +48,8 @@ class LogToWorker(logging.Handler):
         logger.addHandler(LogToWorker(CONFIG['WORKER_LOG_ADDR']))
 
         backup_handler = logging.StreamHandler()
-        #backup_handler.setLevel(logging.CRITICAL)
+        if not LOCAL_SPEW:
+            backup_handler.setLevel(logging.CRITICAL)
         logger.addHandler(backup_handler)
 
 # --
@@ -90,6 +92,7 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
             ok = ret != None
             server_pconn.send_t(BOOL_T, bool(ok))
             if ok:
+                server_pconn.shutdown_after_send()
                 return ret
             continue
     except socket.error:
