@@ -342,7 +342,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_text
 
         output_files.append( (name.decode(), data) )
 
-    pconn.shutdown_after_recv()
+    pconn.shutdown()
 
     return (retcode, stdout, stderr, output_files)
 
@@ -370,4 +370,4 @@ def pydra_job_worker(pconn, subkey):
         pconn.send(data)
     pconn.send(b'')
 
-    pconn.shutdown_after_send()
+    pconn.send_shutdown()

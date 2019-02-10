@@ -21,7 +21,7 @@ class LogToWorker(logging.Handler):
     def close(self):
         with self.lock:
             if self.pconn:
-                self.pconn.shutdown_after_send()
+                self.pconn.send_shutdown()
         super().close()
 
 
@@ -89,12 +89,12 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
                 ret = None
             finally:
                 worker_pconn.nuke()
-            ok = ret != None
-            server_pconn.send_t(BOOL_T, bool(ok))
-            if ok:
-                server_pconn.shutdown_after_send()
-                return ret
-            continue
+            if ret == None:
+                server_pconn.send(b'')
+                continue
+
+            server_pconn.shutdown()
+            return ret
     except socket.error:
         logging.warning('server_conn died:\n' + traceback.format_exc())
     finally:

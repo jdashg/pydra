@@ -103,8 +103,12 @@ def job_accept(pconn):
             with g_cvar:
                 job.set_active(True)
 
-            success = pconn.recv_t(BOOL_T)
-            if success:
+            try:
+                pconn.recv() # ignored
+                continue
+            except (nu.ExSocketEOF, socket.error):
+                # Also socket.error because the client exiting quickly can axe the
+                # connection.
                 break
     finally:
         if job:
@@ -123,8 +127,9 @@ def worker_accept(pconn):
             worker.set_active(True)
 
         try:
-            pconn.recv_t(BOOL_T) # Fails on socket close.
+            pconn.wait_for_shutdown()
         except socket.error:
+            # socket.error because the client exiting quickly can axe the connection.
             pass
     finally:
         if worker:
@@ -194,5 +199,5 @@ server.listen_until_shutdown()
 wait_for_keyboard()
 server.shutdown()
 
-dump_thread_stacks()
+#dump_thread_stacks()
 exit(0)

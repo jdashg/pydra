@@ -75,6 +75,8 @@ def advert_to_server():
         pass
     except socket.error:
         raise
+    finally:
+        pconn.nuke()
 
 # --
 
@@ -147,5 +149,5 @@ wait_for_keyboard()
 work_server.shutdown()
 log_server.shutdown()
 
-dump_thread_stacks()
+#dump_thread_stacks()
 exit(0)

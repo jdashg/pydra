@@ -348,13 +348,13 @@ class PacketConn(object):
 
     # Ideally, this is called by the client/last recipient.
     # (see https://stackoverflow.com/questions/3757289/tcp-option-so-linger-zero-when-its-required)
-    def shutdown_after_recv(self):
+    def shutdown(self):
         self.set_keepalive(False)
         self.conn.shutdown(socket.SHUT_RDWR)
         self.conn.close()
 
 
-    def shutdown_after_send(self):
+    def send_shutdown(self):
         self.set_keepalive(False)
         self.conn.shutdown(socket.SHUT_WR)
         try:
@@ -363,6 +363,18 @@ class PacketConn(object):
         except ExSocketEOF:
             pass
         self.conn.shutdown(socket.SHUT_RD)
+        self.conn.close()
+
+
+    # Allows sending on other threads still.
+    def wait_for_shutdown(self):
+        self.set_keepalive(False)
+        try:
+            self.recv()
+            assert False
+        except ExSocketEOF:
+            pass
+        self.conn.shutdown(socket.SHUT_RDWR)
         self.conn.close()
 
 
