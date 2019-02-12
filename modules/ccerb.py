@@ -279,9 +279,6 @@ def pydra_shim(fn_dispatch, *mod_args):
 
         # --
 
-        assert '/' not in source_file_name
-        assert '\\' not in source_file_name
-
         write_files(os.getcwd(), output_files)
 
         sys.stdout.buffer.write(stdout_prefix)
