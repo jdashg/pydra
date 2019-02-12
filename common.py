@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     'TIMEOUT_TO_LOG': 0.300,
     'KEEPALIVE_TIMEOUT': 1.000,
     'LOG_LEVEL': logging.DEBUG, #logging.WARNING,
-    'CC_LIST': ['S:\dev\msvc-dot-bat\cl.bat'],
+    'CC_LIST': [],
 }
 
 # --
@@ -88,6 +88,7 @@ if CONFIG_PATH.exists():
     code = CONFIG_PATH.read_bytes()
     code = compile(code, CONFIG_PATH.as_posix(), 'exec', optimize=0)
     exec(code, CONFIG_GLOBALS, CONFIG)
+    # For example, CONFIG['CC_LIST'] can be modified in ~/.pydra/config.py as `CC_LIST +=`.
 
 # --
 

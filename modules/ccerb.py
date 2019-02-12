@@ -233,7 +233,8 @@ def pydra_shim(fn_dispatch, *mod_args):
 
     logging.debug('<mod_args: {}>'.format(mod_args))
 
-    # =
+    # -
+
     try:
         if not mod_args:
             raise ExShimOut('no mod_args')
