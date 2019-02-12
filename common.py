@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     'TIMEOUT_TO_LOG': 0.300,
     'KEEPALIVE_TIMEOUT': 1.000,
     'LOG_LEVEL': logging.DEBUG, #logging.WARNING,
-    'CC_LIST': ['S:\dev\clcc\cl.bat'],
+    'CC_LIST': ['S:\dev\msvc-dot-bat\cl.bat'],
 }
 
 # --
@@ -269,3 +269,31 @@ def dump_thread_stacks():
         stack = traceback.format_stack(f=v)
         text = '\nThread {}:\n{}'.format(hex(k), '\n'.join(stack))
         logging.debug(text)
+
+# --
+
+class MsTimer(object):
+    def __init__(self):
+        self.start = time.time()
+        self.lap_start = self.start
+
+    class Res(object):
+        def __init__(self, val):
+            self.val = val
+
+        def __float__(self):
+            return self.val
+
+        def __str__(self):
+            return '{:.3f}ms'.format(self.val)
+
+    def time(self):
+        now = time.time()
+        x = now - self.start
+        return self.Res(x * 1000.0)
+
+    def lap(self):
+        now = time.time()
+        x = now - self.lap_start
+        self.lap_start = now
+        return self.Res(x * 1000.0)

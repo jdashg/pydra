@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 assert __name__ != '__main__'
 
+import lzma
 import os
 import shutil
 import socket
@@ -9,8 +10,18 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 
 from common import *
+
+# --
+
+COMPRESS_ZLIB_LEVEL = 0
+COMPRESS_LZMA = False
+
+COMPRESS_ZLIB_LEVEL = 1 # ~115Mbps compressing
+#COMPRESS_ZLIB_LEVEL = 6 # ~35Mbps compressing
+#COMPRESS_LZMA = True # ~2Mbps compressing
 
 # --
 
@@ -25,10 +36,6 @@ def get_cc_key(path):
 
     #logging.info('{} -> {}'.format(path, key))
     return key
-
-# --
-# Find some keys!
-
 
 # --
 
@@ -201,7 +208,7 @@ def read_files(root_dir):
             logging.info('<read {} ({} bytes)>'.format(path, len(data)))
 
             rel_path = os.path.relpath(path, root_dir)
-            ret.append((rel_path, data))
+            ret.append([rel_path, data])
     return ret
 
 
@@ -254,8 +261,8 @@ def pydra_shim(fn_dispatch, *mod_args):
         p = subprocess.run([cc_bin] + preproc_args, capture_output=True)
         if p.returncode != 0:
             raise ExShimOut('preproc failed') # Safer to shim out.
-        preproc_text = p.stdout
-        logging.info('<[{}] preproc complete: {} bytes>'.format(timer_str(), len(preproc_text)))
+        preproc_data = p.stdout
+        logging.info('<[{}] preproc complete: {} bytes>'.format(timer_str(), len(preproc_data)))
 
         stdout_prefix = b''
         if has_show_includes:
@@ -263,7 +270,7 @@ def pydra_shim(fn_dispatch, *mod_args):
 
         # -
 
-        ret = fn_dispatch(cc_key, compile_args, source_file_name, preproc_text)
+        ret = fn_dispatch(cc_key, compile_args, source_file_name, preproc_data)
         if ret == None:
             raise ExShimOut('dispatch failed')
         (retcode, stdout, stderr, output_files) = ret
@@ -322,12 +329,65 @@ def run_in_temp_dir(input_files, args):
 
 # -
 
-def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_text):
+def compress(data, name):
+    t = MsTimer()
+    d_size = len(data)
+
+    if COMPRESS_ZLIB_LEVEL:
+        data = zlib.compress(data, level=COMPRESS_ZLIB_LEVEL)
+
+    if COMPRESS_LZMA:
+        data = lzma.compress(data)
+
+    c_size = len(data)
+
+    diff = t.time()
+    try:
+        mbps = ((d_size - c_size) / 1000 / 1000) / (float(diff) / 1000)
+    except ZeroDivisionError:
+        mbps = float('Inf')
+    percent = int(c_size / d_size * 100)
+    logging.info('<compress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, d_size, c_size, percent, str(diff)))
+
+    return data
+
+
+def decompress(data, name=''):
+    t = MsTimer()
+    c_size = len(data)
+
+    if COMPRESS_LZMA:
+        data = lzma.decompress(data)
+
+    if COMPRESS_ZLIB_LEVEL:
+        data = zlib.decompress(data)
+
+    d_size = len(data)
+
+    diff = t.time()
+    try:
+        mbps = ((d_size - c_size) / 1000 / 1000) / (float(diff) / 1000)
+    except ZeroDivisionError:
+        mbps = float('Inf')
+    percent = int(c_size / d_size * 100)
+    logging.info('<decompress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, c_size, d_size, percent, str(diff)))
+
+    return data
+
+# -
+
+def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data):
+    preproc_data = compress(preproc_data, source_file_name)
+
+    # -
+
     for x in compile_args:
         pconn.send(x.encode())
     pconn.send(b'')
     pconn.send(source_file_name.encode())
-    pconn.send(preproc_text)
+    pconn.send(preproc_data)
+
+    # -
 
     retcode = pconn.recv_t(I32_T)
     stdout = pconn.recv()
@@ -340,9 +400,12 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_text
             break
         data = pconn.recv()
 
-        output_files.append( (name.decode(), data) )
+        output_files.append( [name.decode(), data] )
 
     pconn.shutdown()
+
+    for n_d in output_files:
+        n_d[1] = decompress(n_d[1], n_d[0])
 
     return (retcode, stdout, stderr, output_files)
 
@@ -356,10 +419,17 @@ def pydra_job_worker(pconn, subkey):
             break
         compile_args.append(x.decode())
     source_file_name = pconn.recv().decode()
-    preproc_text = pconn.recv()
+    preproc_data = pconn.recv()
 
-    input_files = [(source_file_name, preproc_text)]
+    input_files = [[source_file_name, preproc_data]]
+
+    for n_d in input_files:
+        n_d[1] = decompress(n_d[1], n_d[0])
+
     (retcode, stdout, stderr, output_files) = run_in_temp_dir(input_files, compile_args)
+
+    for n_d in output_files:
+        n_d[1] = compress(n_d[1], n_d[0])
 
     pconn.send_t(I32_T, retcode)
     pconn.send(stdout)

@@ -144,6 +144,8 @@ threading.Thread(target=advert_to_server_loop, daemon=True).start()
 
 # --
 
+nice_down()
+
 wait_for_keyboard()
 
 work_server.shutdown()
