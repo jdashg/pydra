@@ -46,9 +46,6 @@ class ExShimOut(Exception):
 
 # --
 
-SOURCE_EXTS = ['c', 'cc', 'cpp']
-BOTH_ARGS = ['-nologo', '-Tc', '-TC', '-Tp', '-TP']
-
 def process_args(cc_args):
     args = list(cc_args)
     if not args:
@@ -69,11 +66,16 @@ def process_args(cc_args):
             is_compile_only = True
             continue
 
-        if cur in ('-H', '-showIncludes'):
+        if cur in ('-H', '-showIncludes', '-MD'):
             preproc.append(cur)
             continue
 
-        if cur in BOTH_ARGS:
+        if cur in ('-nologo', '-TC', '-TP'):
+            preproc.append(cur)
+            compile.append(cur)
+            continue
+
+        if cur.startswith('-m'): # -mavx2
             preproc.append(cur)
             compile.append(cur)
             continue
@@ -109,8 +111,34 @@ def process_args(cc_args):
             compile.append(cur)
             continue
 
+        if cur == '-Xclang':
+            try:
+                next = args.pop(0)
+            except:
+                raise ExShimOut('missing arg after -Xclang')
+
+            if next == '-MP':
+                preproc += [cur, next]
+                continue
+
+            if next.startswith('-std'):
+                compile += [cur, next]
+                continue
+
+            if next in ('-dependency-file', '-MT'):
+                try:
+                    next_xclang = args.pop(0)
+                    assert next_xclang == '-Xclang'
+                    next_path = args.pop(0)
+                except:
+                    raise ExShimOut('missing args after -Xclang ' + next)
+                preproc += [cur, next, next_xclang, next_path]
+                continue
+
+            raise ExShimOut('TODO: unrecognized arg after -Xclang: ' + next)
+
         split = cur.rsplit('.', 1)
-        if len(split) == 2 and split[1].lower() in SOURCE_EXTS:
+        if len(split) == 2 and split[1].lower() in ('c', 'cc', 'cpp'):
             if source_file_name:
                 raise ExShimOut('multiple source files')
 
@@ -119,6 +147,7 @@ def process_args(cc_args):
             compile.append(source_file_name)
             continue
 
+        # Must be for compile.
         compile.append(cur)
         continue
 
@@ -169,6 +198,24 @@ EXAMPLE_CL_ARGS = [
     '-Ic:/dev/mozilla/gecko-cinn3-obj/dist/include/cairo', '-wd4312',
     'c:/dev/mozilla/gecko-cinn3-obj/dom/canvas/Unified_cpp_dom_canvas1.cpp'
 ]
+'''
+'''
+[log 17]  <<running: ['C:\\Users\\khetu\\.mozbuild\\clang\\bin\\clang-cl.exe',
+'-c', '-FoUnified_cpp_js_src_jit2.obj',
+'-MD',
+'-Qunused-arguments', '-guard:cf',
+'-Qunused-arguments',
+'-TP', '-nologo', '-wd4800', '-wd4595', '-w15038', '-wd5026',
+'-wd5027', '-Zc:sizedDealloc-', '-guard:cf', '-W3', '-Gy', '-Zc:inline', '-Gw', '-wd4244',
+'-wd4267', '-wd4251', '-wd4065', '-Wno-inline-new-delete', '-Wno-invalid-offsetof',
+'-Wno-microsoft-enum-value', '-Wno-microsoft-include', '-Wno-unknown-pragmas',
+'-Wno-ignored-pragmas', '-Wno-deprecated-declarations', '-Wno-invalid-noreturn',
+'-Wno-inconsistent-missing-override', '-Wno-implicit-exception-spec-mismatch',
+'-Wno-unused-local-typedef', '-Wno-ignored-attributes', '-Wno-used-but-marked-unused',
+'-we4553', '-GR-', '-Z7', '-Oy-', '-WX', '-wd4805', '-wd4661', '-wd4146', '-wd4312',
+'-Xclang', '-MP', '-Xclang', '-dependency-file',
+'-Xclang', '.deps/Unified_cpp_js_src_jit2.obj.pp', '-Xclang', '-MT',
+'-Xclang', 'Unified_cpp_js_src_jit2.obj', 'Unified_cpp_js_src_jit2.cpp']>>
 '''
 # ------------------------------------------------------------------------------
 
