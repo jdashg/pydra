@@ -45,7 +45,7 @@ class LogToWorker(logging.Handler):
     @staticmethod
     def install():
         logger = logging.getLogger()
-        logger.addHandler(LogToWorker(CONFIG['WORKER_LOG_ADDR']))
+        logger.addHandler(LogToWorker(CONFIG['LOG_ADDR']))
 
         backup_handler = logging.StreamHandler()
         if not LOCAL_SPEW:

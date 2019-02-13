@@ -44,8 +44,9 @@ class LockingLogHandler(logging.Handler):
 
 DEFAULT_CONFIG = {
     'JOB_SERVER_ADDR': ('localhost', 38520),
-    'WORKER_ADDR': (socket.gethostname(), 38521),
-    'WORKER_LOG_ADDR': ('localhost', 38522),
+    'LOG_ADDR': ('localhost', 38521),
+    'WORKER_BASE_ADDR': (socket.gethostname(), 38522),
+    'WORKERS': os.cpu_count(),
     'HOSTNAME': socket.gethostname(),
     'TIMEOUT_CLIENT_TO_SERVER': 0.300,
     'TIMEOUT_WORKER_TO_SERVER': 0.300,
