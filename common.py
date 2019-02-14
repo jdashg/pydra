@@ -53,7 +53,7 @@ DEFAULT_CONFIG = {
     'TIMEOUT_TO_WORKER': 0.300,
     'TIMEOUT_TO_LOG': 0.300,
     'KEEPALIVE_TIMEOUT': 1.000,
-    'LOG_LEVEL': logging.DEBUG, #logging.WARNING,
+    'LOG_LEVEL': logging.INFO,
     'CC_LIST': [],
 }
 

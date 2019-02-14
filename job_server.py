@@ -165,7 +165,7 @@ def matchmake_loop():
                 g_cvar.wait()
                 continue
 
-            locked_print('Matched ({}, {})'.format(job, worker))
+            logging.info('Matched ({}, {})'.format(job, worker))
 
             wap = WorkerAssignmentPacket()
             wap.hostname = worker.hostname

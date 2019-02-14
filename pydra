@@ -34,7 +34,7 @@ mod_name = sys.argv[-1]
 
 # --
 
-logging.info('<<mod_name: %s>>', mod_name)
+logging.debug('<<mod_name: %s>>', mod_name)
 
 mod = pydra_mod.LoadModule(mod_name)
 

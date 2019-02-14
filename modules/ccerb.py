@@ -60,25 +60,25 @@ def process_args(cc_args):
         cur = args.pop(0)
 
         if cur == '-E':
-            raise ExShimOut('preproc-only')
+            raise ExShimOut('already preproc-only')
 
         if cur == '-c':
             is_compile_only = True
             continue
 
-        if cur in ('-H', '-showIncludes', '-MD'):
+        if cur in ('-H', '-showIncludes'):
             preproc.append(cur)
             continue
 
-        if cur in ('-nologo', '-TC', '-TP'):
-            preproc.append(cur)
-            compile.append(cur)
-            continue
-
-        if cur.startswith('-m'): # -mavx2
-            preproc.append(cur)
-            compile.append(cur)
-            continue
+        #if cur in ('-nologo', '-TC', '-TP', '-MD', '-MDd', '-MT', '-MTd'):
+        #    preproc.append(cur)
+        #    compile.append(cur)
+        #    continue
+        #
+        #if cur.startswith('-m'): # -mavx2
+        #    preproc.append(cur)
+        #    compile.append(cur)
+        #    continue
 
         if cur == '-I':
             preproc.append(cur)
@@ -94,7 +94,7 @@ def process_args(cc_args):
             continue
 
         if cur.startswith('-Tc') or cur.startswith('-Tp'):
-            raise ExShimOut('-Tp,-Tc unsupported')
+            raise ExShimOut('TODO: -Tp,-Tc unsupported')
 
         if cur == '-FI':
             preproc.append(cur)
@@ -107,7 +107,7 @@ def process_args(cc_args):
 
         if cur.startswith('-Fo'):
             if os.path.dirname(cur[2:]):
-                raise ExShimOut('-Fo target is a path')
+                raise ExShimOut('TODO: -Fo target is a path')
             compile.append(cur)
             continue
 
@@ -140,14 +140,15 @@ def process_args(cc_args):
         split = cur.rsplit('.', 1)
         if len(split) == 2 and split[1].lower() in ('c', 'cc', 'cpp'):
             if source_file_name:
-                raise ExShimOut('multiple source files')
+                raise ExShimOut('TODO: multiple source files')
 
             source_file_name = os.path.basename(cur)
             preproc.append(cur)
             compile.append(source_file_name)
             continue
 
-        # Must be for compile.
+        # Send to both!
+        preproc.append(cur)
         compile.append(cur)
         continue
 
@@ -155,7 +156,7 @@ def process_args(cc_args):
         raise ExShimOut('not compile-only')
 
     if not source_file_name:
-        raise ExShimOut('no source file')
+        raise ExShimOut('no source file detected')
 
     return (preproc, compile, source_file_name)
 
@@ -252,7 +253,7 @@ def read_files(root_dir):
             path = os.path.join(cur_root, x)
             with open(path, 'rb') as f:
                 data = f.read()
-            logging.info('<read {} ({} bytes)>'.format(path, len(data)))
+            logging.debug('<read {} ({} bytes)>'.format(path, len(data)))
 
             rel_path = os.path.relpath(path, root_dir)
             ret.append([rel_path, data])
@@ -267,16 +268,12 @@ def write_files(root_dir, files):
         file_path = os.path.join(root_dir, file_rel_path)
         with open(file_path, 'wb') as f:
             f.write(file_data)
-        logging.info('<wrote {} ({} bytes)>'.format(file_path, len(file_data)))
+        logging.debug('<wrote {} ({} bytes)>'.format(file_path, len(file_data)))
 
 # -
 
 def pydra_shim(fn_dispatch, *mod_args):
-    start = time.time()
-    def timer_str():
-        now = time.time()
-        diff = now - start
-        return '{:.3f}s'.format(diff)
+    t = MsTimer()
 
     logging.debug('<mod_args: {}>'.format(mod_args))
 
@@ -290,15 +287,16 @@ def pydra_shim(fn_dispatch, *mod_args):
         cc_args = mod_args[1:]
 
         cc_key = get_cc_key(cc_bin)
-        logging.info('<[{}] cc_key: {}>'.format(timer_str(), cc_key))
+        logging.debug('<[{}] cc_key: {}>'.format(t.time(), cc_key))
 
         # -
 
         (preproc_args, compile_args, source_file_name) = process_args(cc_args)
 
-        logging.info('<[{}] source_file_name: {}>'.format(timer_str(), source_file_name))
-        logging.debug('<<preproc_args: {}>>'.format(preproc_args))
-        logging.debug('<<compile_args: {}>>'.format(compile_args))
+        logging.info('  {}: ({}) Preproc...'.format(source_file_name, t.time()))
+        logging.debug('    {}: mod_args: {}'.format(preproc_args))
+        logging.debug('    {}: preproc_args: {}'.format(preproc_args))
+        logging.debug('    {}: compile_args: {}'.format(compile_args))
 
         has_show_includes = '-showIncludes' in preproc_args
         if has_show_includes:
@@ -310,7 +308,8 @@ def pydra_shim(fn_dispatch, *mod_args):
         if p.returncode != 0:
             raise ExShimOut('preproc failed') # Safer to shim out.
         preproc_data = p.stdout
-        logging.info('<[{}] preproc complete: {} bytes>'.format(timer_str(), len(preproc_data)))
+        logging.info('  {}: ({}) Preproc complete. ({} bytes) Dispatch...'.format(source_file_name,
+                t.time(), len(preproc_data)))
 
         stdout_prefix = b''
         if has_show_includes:
@@ -323,7 +322,8 @@ def pydra_shim(fn_dispatch, *mod_args):
             raise ExShimOut('dispatch failed')
         (retcode, stdout, stderr, output_files) = ret
         total_bytes = sum([len(x) for (_,x) in output_files])
-        logging.info('<[{}] dispatch complete: {} bytes in {} files>'.format(timer_str(), total_bytes, len(output_files)))
+        logging.info('  {}: ({}) Dispatch complete. ({} bytes, {} files) Writing...'.format(
+                source_file_name, t.time(), total_bytes, len(output_files)))
 
         # --
 
@@ -332,10 +332,10 @@ def pydra_shim(fn_dispatch, *mod_args):
         sys.stdout.buffer.write(stdout_prefix)
         sys.stdout.buffer.write(stdout)
         sys.stderr.buffer.write(stderr)
-        logging.info('<[{}] done>'.format(timer_str()))
+        logging.info('{}: ({}) Complete.'.format(source_file_name, t.time()))
         exit(retcode)
     except ExShimOut as e:
-        logging.info('<shimming out: \'{}\'>'.format(e.reason))
+        logging.info('Shimming out: \'{}\'>'.format(e.reason))
         logging.debug('<<shimming out args: {}>>'.format(mod_args))
         p = subprocess.run(mod_args)
         exit(p.returncode)
@@ -374,6 +374,8 @@ def run_in_temp_dir(input_files, args):
 
 # -
 
+SPEW_COMPRESSION_INFO = True
+
 def compress(data, name):
     t = MsTimer()
     d_size = len(data)
@@ -392,7 +394,8 @@ def compress(data, name):
     except ZeroDivisionError:
         mbps = float('Inf')
     percent = int(c_size / d_size * 100)
-    logging.info('<compress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, d_size, c_size, percent, str(diff)))
+    if SPEW_COMPRESSION_INFO:
+        logging.info('  <compress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, d_size, c_size, percent, str(diff)))
 
     return data
 
@@ -415,7 +418,8 @@ def decompress(data, name=''):
     except ZeroDivisionError:
         mbps = float('Inf')
     percent = int(c_size / d_size * 100)
-    logging.info('<decompress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, c_size, d_size, percent, str(diff)))
+    if SPEW_COMPRESSION_INFO:
+        logging.debug('  <decompress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, c_size, d_size, percent, str(diff)))
 
     return data
 

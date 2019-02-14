@@ -18,8 +18,10 @@ if  __name__ == '__main__':
 
     def th_on_accept_log(conn, addr):
         conn_id = next(log_conn_counter)
-        conn_prefix = '[log {}] '.format(conn_id)
-        logging.info(conn_prefix + '<connected>')
+        conn_prefix = ''
+        if CONFIG['LOG_LEVEL'] == logging.DEBUG:
+            conn_prefix = '[log {}] '.format(conn_id)
+        logging.debug(conn_prefix + '<connected>')
 
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         try:
@@ -30,7 +32,7 @@ if  __name__ == '__main__':
         except (socket.error, nu.ExSocketEOF):
             pass
         finally:
-            logging.info(conn_prefix + '<disconnected>')
+            logging.debug(conn_prefix + '<disconnected>')
             pconn.nuke()
 
     # --
@@ -61,7 +63,9 @@ def run_worker(n):
     addr = CONFIG['WORKER_BASE_ADDR']
     addr = (addr[0], addr[1] + n - 1)
 
-    logging.info('run_worker({}: {})'.format(n, addr))
+    worker_prefix = '[worker {}] '.format(n)
+
+    logging.info(worker_prefix + 'addr: {}'.format(addr))
     nice_down()
 
     work_server = None
@@ -69,22 +73,22 @@ def run_worker(n):
 
     def th_on_accept_work(conn, addr):
         conn_id = next(work_conn_counter)
-        conn_prefix = '[work {}@{}]'.format(conn_id, n)
-        logging.info(conn_prefix + '<connected>')
+        conn_prefix = worker_prefix + '[work {}] '.format(conn_id)
+        logging.debug(conn_prefix + '<connected>')
 
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         try:
             hostname = pconn.recv().decode()
             key = pconn.recv()
 
-            locked_print(conn_prefix + 'hostname:', hostname)
+            logging.debug(conn_prefix + 'hostname:', hostname)
 
             (mod_name, subkey) = key.split(b'|', 1)
             m = MODS[mod_name.decode()]
             m.pydra_job_worker(pconn, subkey)
 
         finally:
-            logging.info(conn_prefix + '<disconnected>')
+            logging.debug(conn_prefix + '<disconnected>')
 
     work_server = nu.Server([addr], target=th_on_accept_work)
     work_server.listen_until_shutdown()
@@ -93,26 +97,25 @@ def run_worker(n):
 
     def advert_to_server():
         if not work_server:
-            logging.info('No work_server.')
+            logging.warning(worker_prefix + 'No work_server.')
             return
         mods_by_key = get_mods_by_key()
         keys = list(mods_by_key.keys())
-        logging.info('keys: {}'.format(keys))
+        logging.debug(worker_prefix + 'keys: {}'.format(keys))
 
         gais = work_server.get_gais()
         addrs = [Address(x[4]) for x in gais]
         if not (keys and addrs):
-            logging.info((keys, addrs))
+            logging.warning(worker_prefix + (keys, addrs))
             return
 
         addr = CONFIG['JOB_SERVER_ADDR']
         conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_WORKER_TO_SERVER'])
         if not conn:
-            logging.warning('Failed to connect: {}'.format(addr))
+            logging.warning(worker_prefix + 'Failed to connect: {}'.format(addr))
             return
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
-        logging.error('Connected: {}'.format(pconn.conn.getpeername()))
-
+        logging.info(worker_prefix + 'Connected to job_server: {}'.format(pconn.conn.getpeername()))
 
         try:
             pconn.send(b'worker')
@@ -127,15 +130,15 @@ def run_worker(n):
                 new_mods_by_key = get_mods_by_key()
                 new_gais = work_server.get_gais()
                 if new_mods_by_key != mods_by_key:
-                    logging.info('Keys changed: {}'.format(new_mods_by_key))
+                    logging.info(worker_prefix + 'Keys changed: {}'.format(new_mods_by_key))
                     return
                 if new_gais != gais:
-                    logging.info('Gais changed.')
+                    logging.info(worker_prefix + 'Gais changed.')
                     return
 
                 time.sleep(1.0)
         except nu.ExSocketEOF:
-            logging.info('Server closed socket.')
+            logging.warning(worker_prefix + 'Server closed socket.')
             pass
         except socket.error:
             raise
@@ -148,7 +151,7 @@ def run_worker(n):
         while True:
             advert_to_server()
             time.sleep(1.0)
-            logging.warning('Reconnecting to server...')
+            logging.warning(worker_prefix + 'Reconnecting to server...')
 
     # --
 
