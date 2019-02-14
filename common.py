@@ -177,6 +177,7 @@ def nice_down():
             p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
             return
         except ModuleNotFoundError:
+            logging.warning('nice_down() on Windows require psutil. (py -3 -m pip install psutil)')
             pass
     else:
         try:
