@@ -81,7 +81,7 @@ def run_worker(n):
             hostname = pconn.recv().decode()
             key = pconn.recv()
 
-            logging.debug(conn_prefix + 'hostname:', hostname)
+            logging.debug(conn_prefix + 'hostname: ' + hostname)
 
             (mod_name, subkey) = key.split(b'|', 1)
             m = MODS[mod_name.decode()]

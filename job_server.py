@@ -12,7 +12,7 @@ worker_queue_by_key = {}
 
 # --
 
-#LockingLogHandler.install()
+LockingLogHandler.install()
 
 # --
 
@@ -194,7 +194,12 @@ def th_on_accept(conn, addr):
 # --
 
 addr = CONFIG['JOB_SERVER_ADDR']
+if addr[0] == 'localhost':
+    logging.error('Hosting job_server on localhost, which excludes remote hosts.')
+
+logging.warning('Hosting job_server at: {}'.format(addr))
 server = nu.Server([addr], target=th_on_accept)
+
 server.listen_until_shutdown()
 wait_for_keyboard()
 server.shutdown()

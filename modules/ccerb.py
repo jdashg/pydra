@@ -294,9 +294,9 @@ def pydra_shim(fn_dispatch, *mod_args):
         (preproc_args, compile_args, source_file_name) = process_args(cc_args)
 
         logging.info('  {}: ({}) Preproc...'.format(source_file_name, t.time()))
-        logging.debug('    {}: mod_args: {}'.format(preproc_args))
-        logging.debug('    {}: preproc_args: {}'.format(preproc_args))
-        logging.debug('    {}: compile_args: {}'.format(compile_args))
+        logging.debug('    {}: mod_args: {}'.format(source_file_name, preproc_args))
+        logging.debug('    {}: preproc_args: {}'.format(source_file_name, preproc_args))
+        logging.debug('    {}: compile_args: {}'.format(source_file_name, compile_args))
 
         has_show_includes = '-showIncludes' in preproc_args
         if has_show_includes:
