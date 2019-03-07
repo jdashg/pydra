@@ -28,18 +28,23 @@ class LogToWorker(logging.Handler):
     def emit(self, record):
         text = self.format(record)
         with self.lock:
-            if self.pconn == None:
-                self.pconn = False
-                conn = nu.connect_any([self.addr], timeout=CONFIG['TIMEOUT_TO_LOG'])
-                if conn:
-                    self.pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+            try:
+                if self.pconn == None:
+                    self.pconn = False
+                    conn = nu.connect_any([self.addr], timeout=CONFIG['TIMEOUT_TO_LOG'])
+                    if conn:
+                        self.pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
-            if not self.pconn:
-                return
+                if not self.pconn:
+                    return
 
-            #print('sending', text)
-            self.pconn.send(text.encode())
-            #print('sent')
+                #print('sending', text)
+                self.pconn.send(text.encode())
+                #print('sent')
+            except socket.error as e:
+                output = ['LogToWorker failed: {}'.format(e)]
+                output += ['|' + x for x in text.split('\n')]
+                sys.stderr.write('\n'.join(output))
 
 
     @staticmethod
@@ -85,7 +90,7 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
                 worker_pconn.send(key)
 
                 ret = fn_pydra_job_client(worker_pconn, subkey, *args)
-            except socket.error:
+            except (socket.error, nu.ExSocketEOF):
                 ret = None
             finally:
                 worker_pconn.nuke()
