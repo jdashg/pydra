@@ -38,7 +38,7 @@ class Job(object):
 
 
     def set_active(self, new_val):
-        logging.info('{}.set_active({})'.format(self, new_val))
+        logging.warning('{}.set_active({})'.format(self, new_val))
         if self._active == new_val:
             return
         self._active = new_val
@@ -74,7 +74,7 @@ class Worker(object):
 
 
     def set_active(self, new_val):
-        logging.info('{}.set_active({})'.format(self, new_val))
+        logging.warning('{}.set_active({})'.format(self, new_val))
         if self._active == new_val:
             return
         self._active = new_val
@@ -103,11 +103,11 @@ def job_accept(pconn):
             with g_cvar:
                 job.set_active(True)
 
-            try:
-                pconn.recv() # ignored
-                continue
-            except OSError:
-                break
+            pconn.recv() # Remote will kill socket if its done.
+            continue # Recv dummy val means repeat.
+
+    except OSError:
+        pass
     finally:
         if job:
             with g_cvar:
@@ -124,11 +124,9 @@ def worker_accept(pconn):
         with g_cvar:
             worker.set_active(True)
 
-        try:
-            pconn.wait_for_shutdown()
-        except OSError:
-            # OSError because the client exiting quickly can axe the connection.
-            pass
+        pconn.wait_for_shutdown()
+    except OSError:
+        pass
     finally:
         if worker:
             with g_cvar:
@@ -163,7 +161,7 @@ def matchmake_loop():
                 g_cvar.wait()
                 continue
 
-            logging.info('Matched ({}, {})'.format(job, worker))
+            logging.warning('Matched ({}, {})'.format(job, worker))
 
             wap = WorkerAssignmentPacket()
             wap.hostname = worker.hostname
@@ -180,7 +178,6 @@ def th_on_accept(conn, addr):
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         conn_type = pconn.recv()
     except OSError:
-        logging.warning('timeout')
         return
 
     if conn_type == b'job':

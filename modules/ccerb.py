@@ -40,9 +40,14 @@ def get_cc_key(path):
 # --
 
 class ExShimOut(Exception):
-    def __init__(self, reason):
+    def __init__(self, reason, log_func=logging.debug):
         self.reason = reason
+        self.log_func = log_func
         return
+
+
+    def log(self, mod_args):
+        self.log_func('Shimming out: \'{}\': {}'.format(self.reason, mod_args))
 
 # --
 
@@ -85,7 +90,7 @@ def process_args(cc_args):
             try:
                 next = args.pop(0)
             except:
-                raise ExShimOut('missing arg after -I')
+                raise ExShimOut('missing arg after -I', logging.error)
             preproc.append(next)
             continue
 
@@ -94,20 +99,20 @@ def process_args(cc_args):
             continue
 
         if cur.startswith('-Tc') or cur.startswith('-Tp'):
-            raise ExShimOut('TODO: -Tp,-Tc unsupported')
+            raise ExShimOut('TODO: -Tp,-Tc unsupported', logging.warning)
 
         if cur == '-FI':
             preproc.append(cur)
             try:
                 next = args.pop(0)
             except:
-                raise ExShimOut('missing arg after -FI')
+                raise ExShimOut('missing arg after -FI', logging.error)
             preproc.append(next)
             continue
 
         if cur.startswith('-Fo'):
             if os.path.dirname(cur[2:]):
-                raise ExShimOut('TODO: -Fo target is a path')
+                raise ExShimOut('TODO: -Fo target is a path', logging.warning)
             compile.append(cur)
             continue
 
@@ -115,7 +120,7 @@ def process_args(cc_args):
             try:
                 next = args.pop(0)
             except:
-                raise ExShimOut('missing arg after -Xclang')
+                raise ExShimOut('missing arg after -Xclang', logging.error)
 
             if next == '-MP':
                 preproc += [cur, next]
@@ -131,16 +136,16 @@ def process_args(cc_args):
                     assert next_xclang == '-Xclang'
                     next_path = args.pop(0)
                 except:
-                    raise ExShimOut('missing args after -Xclang ' + next)
+                    raise ExShimOut('missing args after -Xclang ' + next, logging.error)
                 preproc += [cur, next, next_xclang, next_path]
                 continue
 
-            raise ExShimOut('TODO: unrecognized arg after -Xclang: ' + next)
+            raise ExShimOut('TODO: unrecognized arg after -Xclang: ' + next, logging.error)
 
         split = cur.rsplit('.', 1)
         if len(split) == 2 and split[1].lower() in ('c', 'cc', 'cpp'):
             if source_file_name:
-                raise ExShimOut('TODO: multiple source files')
+                raise ExShimOut('TODO: multiple source files', logging.warning)
 
             source_file_name = os.path.basename(cur)
             preproc.append(cur)
@@ -156,7 +161,7 @@ def process_args(cc_args):
         raise ExShimOut('not compile-only')
 
     if not source_file_name:
-        raise ExShimOut('no source file detected')
+        raise ExShimOut('no source file detected', logging.warning)
 
     return (preproc, compile, source_file_name)
 
@@ -306,10 +311,11 @@ def pydra_shim(fn_dispatch, *mod_args):
 
         p = subprocess.run([cc_bin] + preproc_args, capture_output=True)
         if p.returncode != 0:
-            raise ExShimOut('preproc failed') # Safer to shim out.
+            raise ExShimOut('preproc failed', logging.info) # Safer to shim out.
         preproc_data = p.stdout
+        preproc_time = t.time()
         logging.info('  {}: ({}) Preproc complete. ({} bytes) Dispatch...'.format(source_file_name,
-                t.time(), len(preproc_data)))
+                preproc_time, len(preproc_data)))
 
         stdout_prefix = b''
         if has_show_includes:
@@ -332,11 +338,12 @@ def pydra_shim(fn_dispatch, *mod_args):
         sys.stdout.buffer.write(stdout_prefix)
         sys.stdout.buffer.write(stdout)
         sys.stderr.buffer.write(stderr)
-        logging.info('{}: ({}) Complete.'.format(source_file_name, t.time()))
+        total_time = t.time()
+        preproc_percent = int(100.0 * float(preproc_time) / float(total_time))
+        logging.warning('{}: ({}, {}={}% preproc) Complete.'.format(source_file_name, total_time, preproc_time, preproc_percent))
         exit(retcode)
     except ExShimOut as e:
-        logging.info('Shimming out: \'{}\'>'.format(e.reason))
-        logging.debug('<<shimming out args: {}>>'.format(mod_args))
+        e.log(mod_args)
         p = subprocess.run(mod_args)
         exit(p.returncode)
 

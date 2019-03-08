@@ -26,7 +26,7 @@ class LogToWorker(logging.Handler):
 
 
     def emit(self, record):
-        text = self.format(record)
+        text = self.format(record).encode()
         with self.lock:
             try:
                 if self.pconn == None:
@@ -39,12 +39,12 @@ class LogToWorker(logging.Handler):
                     return
 
                 #print('sending', text)
-                self.pconn.send(text.encode())
+                self.pconn.send(text)
                 #print('sent')
             except OSError as e:
-                output = ['LogToWorker failed: {}'.format(e)]
-                output += ['|' + x for x in text.split('\n')]
-                sys.stderr.write('\n'.join(output))
+                output = ['LogToWorker failed: {}'.format(e).encode()]
+                output += [b'|' + x for x in text.split(b'\n')]
+                sys.stderr.buffer.write(b'\n'.join(output))
 
 
     @staticmethod
