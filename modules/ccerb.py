@@ -349,7 +349,7 @@ def pydra_shim(fn_dispatch, *mod_args):
         sys.stderr.buffer.write(stderr)
         total_time = t.time()
         preproc_percent = int(100.0 * float(preproc_time) / float(total_time))
-        logging.warning('{}: ({}, {}={}% preproc) Complete.'.format(source_file_name, total_time, preproc_time, preproc_percent))
+        logging.warning('Client: {}: ({}, {}={}% preproc) Complete.'.format(source_file_name, total_time, preproc_time, preproc_percent))
         exit(retcode)
     except ExShimOut as e:
         e.log(mod_args)
@@ -476,6 +476,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
 
 
 def pydra_job_worker(pconn, subkey):
+    t = MsTimer()
     cc_bin = CC_BY_KEY[subkey]
     compile_args = [cc_bin]
     while True:
@@ -504,5 +505,7 @@ def pydra_job_worker(pconn, subkey):
         pconn.send(name.encode())
         pconn.send(data)
     pconn.send(b'')
+
+    logging.warning('Worker: {}: ({}) Complete.'.format(source_file_name, t.time()))
 
     pconn.send_shutdown()
