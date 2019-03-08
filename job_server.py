@@ -144,7 +144,7 @@ def matchmake():
         except KeyError:
             continue
         assert len(workers)
-        worker = random.sample(workers, 1)[0]
+        worker = random.choice(workers)
 
         job.set_active(False)
 
