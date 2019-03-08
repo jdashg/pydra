@@ -15,7 +15,9 @@ import traceback
 
 # --
 
-class ExSocketEOF(Exception):
+# Subclass socket.error, because it's not usually useful to rely on detecting a
+# 'clean' shutdown like this.
+class recv_n_eof(socket.error):
     pass
 
 # --
@@ -27,7 +29,7 @@ def recv_n(conn, n):
         while view:
             got = conn.recv_into(view)
             if not got:
-                raise ExSocketEOF()
+                raise recv_n_eof()
             view = view[got:]
     return bytes(ret)
 
@@ -216,8 +218,6 @@ class Server(object):
     def _th_on_accept(self, conn, addr):
         try:
             self.fn_on_accept(conn=conn, addr=addr, *(self.on_accept_args))
-        except ExSocketEOF as _:
-            pass
         except Exception as e:
             traceback.print_exc()
         nuke_socket(conn)
@@ -302,18 +302,21 @@ class PacketConn(object):
 
 
     def recv(self):
-        with self.rlock:
-            while True:
-                b_len = recv_t(self.conn, U8_T)
-                if b_len == self.KEEP_ALIVE_VAL:
-                    continue
-                if b_len == self.LONG_LEN_THRESHOLD:
-                    b_len = recv_t(self.conn, U64_T)
+        try:
+            with self.rlock:
+                while True:
+                    b_len = recv_t(self.conn, U8_T)
+                    if b_len == self.KEEP_ALIVE_VAL:
+                        continue
+                    if b_len == self.LONG_LEN_THRESHOLD:
+                        b_len = recv_t(self.conn, U64_T)
 
-                b = b''
-                if b_len:
-                    b = recv_n(self.conn, b_len)
-                return b
+                    b = b''
+                    if b_len:
+                        b = recv_n(self.conn, b_len)
+                    return b
+        except (socket.timeout, recv_n_eof) as e:
+            raise socket.error(e) # Treat timeout and EOF as errors.
 
 
     def send_t(self, t, v):
@@ -361,7 +364,7 @@ class PacketConn(object):
         try:
             self.recv()
             assert False
-        except ExSocketEOF:
+        except socket.error:
             pass
         self.conn.shutdown(socket.SHUT_RD)
         self.conn.close()
@@ -373,7 +376,7 @@ class PacketConn(object):
         try:
             self.recv()
             assert False
-        except ExSocketEOF:
+        except socket.error:
             pass
         self.conn.shutdown(socket.SHUT_RDWR)
         self.conn.close()

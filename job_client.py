@@ -90,7 +90,7 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
                 worker_pconn.send(key)
 
                 ret = fn_pydra_job_client(worker_pconn, subkey, *args)
-            except (socket.error, nu.ExSocketEOF):
+            except socket.error:
                 ret = None
             finally:
                 worker_pconn.nuke()

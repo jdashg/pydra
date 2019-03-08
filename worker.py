@@ -29,7 +29,7 @@ if  __name__ == '__main__':
                 text = pconn.recv().decode()
                 text = text.replace('\n', '\n' + ' '*len(conn_prefix))
                 locked_print(conn_prefix, text)
-        except (socket.error, nu.ExSocketEOF):
+        except socket.error:
             pass
         finally:
             logging.debug(conn_prefix + '<disconnected>')
@@ -76,8 +76,8 @@ def run_worker(n):
         conn_prefix = worker_prefix + '[work {}] '.format(conn_id)
         logging.debug(conn_prefix + '<connected>')
 
-        pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         try:
+            pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
             hostname = pconn.recv().decode()
             key = pconn.recv()
 
@@ -86,7 +86,8 @@ def run_worker(n):
             (mod_name, subkey) = key.split(b'|', 1)
             m = MODS[mod_name.decode()]
             m.pydra_job_worker(pconn, subkey)
-
+        except socket.error:
+            pass
         finally:
             logging.debug(conn_prefix + '<disconnected>')
 
@@ -137,21 +138,22 @@ def run_worker(n):
                     return
 
                 time.sleep(1.0)
-        except nu.ExSocketEOF:
-            logging.warning(worker_prefix + 'Server closed socket.')
-            pass
         except socket.error:
-            raise
+            logging.warning(worker_prefix + 'Socket disconnected.')
+            pass
         finally:
             pconn.nuke()
 
     # --
 
     def advert_to_server_loop():
-        while True:
-            advert_to_server()
-            time.sleep(1.0)
-            logging.warning(worker_prefix + 'Reconnecting to server...')
+        try:
+            while True:
+                advert_to_server()
+                time.sleep(1.0)
+                logging.warning(worker_prefix + 'Reconnecting to server...')
+        except KeyboardInterrupt:
+            pass
 
     # --
 
@@ -165,7 +167,7 @@ if  __name__ == '__main__':
 
     procs = []
     for i in range(CONFIG['WORKERS']):
-        procs.append( multiprocessing.Process(target=run_worker, args=(i+1,)) )
+        procs.append( multiprocessing.Process(target=run_worker, args=(i+1,), daemon=True) )
 
     [p.start() for p in procs]
 
@@ -174,7 +176,7 @@ if  __name__ == '__main__':
     wait_for_keyboard()
 
     log_server.shutdown()
-    [p.terminate() for p in procs]
 
+    #[p.terminate() for p in procs]
     #dump_thread_stacks()
     exit(0)

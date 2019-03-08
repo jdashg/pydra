@@ -106,9 +106,7 @@ def job_accept(pconn):
             try:
                 pconn.recv() # ignored
                 continue
-            except (nu.ExSocketEOF, socket.error):
-                # Also socket.error because the client exiting quickly can axe the
-                # connection.
+            except socket.error:
                 break
     finally:
         if job:
@@ -178,10 +176,10 @@ threading.Thread(target=matchmake_loop, daemon=True).start()
 # --
 
 def th_on_accept(conn, addr):
-    pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
     try:
+        pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         conn_type = pconn.recv()
-    except socket.timeout:
+    except socket.error:
         logging.warning('timeout')
         return
 
