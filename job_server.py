@@ -7,7 +7,7 @@ import net_utils as nu
 import itertools
 import random
 
-g_cvar = threading.Condition()
+g_cvar = threading.Condition(threading.Lock())
 job_queue_by_key = {}
 workers_by_key = {}
 
@@ -39,9 +39,12 @@ class Job(object):
 
 
     def set_active(self, new_val):
-        logging.warning('{}.set_active({})'.format(self, new_val))
+        plusminus = ('-', '+')
+        logging.debug('{}{}'.format(plusminus[int(new_val)], self))
+        assert not g_cvar.acquire(False)
         if self._active == new_val:
             return
+        logging.info('{}{}'.format(plusminus[int(new_val)], self))
         self._active = new_val
 
         if new_val:
@@ -65,6 +68,7 @@ class Worker(object):
         self.hostname = hostname
         self.keys = keys
         self.addrs = addrs
+        self.avail_slots = 0.0
         self.id = next(self.next_id) # Purely informational.
         self._active = False
         return
@@ -75,15 +79,18 @@ class Worker(object):
 
 
     def set_active(self, new_val):
-        logging.warning('{}.set_active({})'.format(self, new_val))
+        plusminus = ('-', '+')
+        logging.debug('{}{}'.format(plusminus[int(new_val)], self))
+        assert not g_cvar.acquire(False)
         if self._active == new_val:
             return
+        logging.info('{}{}'.format(plusminus[int(new_val)], self))
         self._active = new_val
 
         for key in self.keys:
             if new_val:
-                workers = workers_by_key.setdefault(key, set())
-                workers.add(self)
+                workers = workers_by_key.setdefault(key, [])
+                workers.append(self)
                 g_cvar.notify()
             else:
                 workers = workers_by_key[key]
@@ -122,10 +129,14 @@ def worker_accept(pconn):
         wap = WorkerAdvertPacket.decode(pconn.recv())
         worker = Worker(pconn, wap.hostname, wap.keys, wap.addrs)
 
-        with g_cvar:
-            worker.set_active(True)
-
-        pconn.wait_for_disconnect()
+        while pconn.alive:
+            avail_slots = pconn.recv_t(F64_T)
+            with g_cvar:
+                if worker.avail_slots == avail_slots:
+                    continue
+                worker.avail_slots = avail_slots
+                logging.warning('{}.avail_slots = {}'.format(worker, worker.avail_slots))
+                worker.set_active(bool(worker.avail_slots))
     except OSError:
         pass
     finally:
@@ -144,9 +155,12 @@ def matchmake():
         except KeyError:
             continue
         assert len(workers)
-        worker = random.choice(workers)
+        weigts = (x.avail_slots for x in workers)
+        cum_weights = list(itertools.accumulate(weigts))
+        (worker,) = random.choices(workers, cum_weights=cum_weights, k=1)
 
         job.set_active(False)
+        worker.set_active(False)
 
         return (job, worker)
 
@@ -158,6 +172,7 @@ def matchmake_loop():
         while True:
             (job, worker) = matchmake()
             if not job:
+                logging.info('No more matches...')
                 g_cvar.wait()
                 continue
 
