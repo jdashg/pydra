@@ -187,7 +187,7 @@ def advert_to_server():
                     avail_slots = max_slots
                 pconn.send_t(F64_T, avail_slots)
 
-                utilization_cv.wait()
+                utilization_cv.wait(10.0) # Refresh, just slowly if not notified.
                 time.sleep(0.1) # Minimum delay between updates
     except OSError:
         pass
