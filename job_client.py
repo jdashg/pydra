@@ -65,7 +65,8 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
     addr = CONFIG['JOB_SERVER_ADDR']
     server_conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_CLIENT_TO_SERVER'])
     if not server_conn:
-        raise ExDispatchFailed('Failed to connect to server: {}'.format(addr))
+        logging.error('Failed to connect to server: {}'.format(addr))
+        return None
     server_pconn = nu.PacketConn(server_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
     try:
