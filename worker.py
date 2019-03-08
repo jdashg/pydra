@@ -59,6 +59,11 @@ def get_mods_by_key():
 
 # --
 
+def th_nuke_on_recv(pconn):
+    pconn.wait_for_disconnect()
+
+# --
+
 def run_worker(n):
     addr = CONFIG['WORKER_BASE_ADDR']
     addr = (addr[0], addr[1] + n - 1)
@@ -98,7 +103,7 @@ def run_worker(n):
 
     def advert_to_server():
         if not work_server:
-            logging.warning(worker_prefix + 'No work_server.')
+            logging.error(worker_prefix + 'No work_server.')
             return
         mods_by_key = get_mods_by_key()
         keys = list(mods_by_key.keys())
@@ -113,11 +118,12 @@ def run_worker(n):
         addr = CONFIG['JOB_SERVER_ADDR']
         conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_WORKER_TO_SERVER'])
         if not conn:
-            logging.warning(worker_prefix + 'Failed to connect: {}'.format(addr))
+            logging.error(worker_prefix + 'Failed to connect: {}'.format(addr))
             return
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
-        logging.info(worker_prefix + 'Connected to job_server: {}'.format(pconn.conn.getpeername()))
+        logging.warning(worker_prefix + 'Connected to job_server: {}'.format(pconn.conn.getpeername()))
 
+        threading.Thread(target=th_nuke_on_recv, args=(pconn,)).start()
         try:
             pconn.send(b'worker')
 
@@ -127,7 +133,7 @@ def run_worker(n):
             wap.addrs = addrs
             pconn.send(wap.encode())
 
-            while True:
+            while pconn.alive:
                 new_mods_by_key = get_mods_by_key()
                 new_gais = work_server.get_gais()
                 if new_mods_by_key != mods_by_key:
@@ -139,9 +145,9 @@ def run_worker(n):
 
                 time.sleep(1.0)
         except OSError:
-            logging.warning(worker_prefix + 'Socket disconnected.')
             pass
         finally:
+            logging.warning(worker_prefix + 'Socket disconnected.')
             pconn.nuke()
 
     # --

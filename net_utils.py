@@ -277,6 +277,7 @@ def connect_any(addrs, timeout=socket.getdefaulttimeout()):
 
 class PacketConn(object):
     def __init__(self, conn, timeout=False, keepalive=False):
+        self.alive = True
         self.conn = conn
         self.slock = threading.RLock()
         self.rlock = threading.RLock()
@@ -316,7 +317,9 @@ class PacketConn(object):
                         b = recv_n(self.conn, b_len)
                     return b
         except (socket.timeout, recv_n_eof) as e:
-            raise OSError(e) # Treat timeout and EOF as errors.
+            # Treat timeout and EOF as errors.
+            self.nuke()
+            raise OSError(e)
 
 
     def send_t(self, t, v):
@@ -350,50 +353,34 @@ class PacketConn(object):
             self.set_keepalive(keepalive)
 
 
-    # Ideally, this is called by the client/last recipient.
-    # (see https://stackoverflow.com/questions/3757289/tcp-option-so-linger-zero-when-its-required)
-    def shutdown(self):
-        self.set_keepalive(False)
-        self.conn.shutdown(socket.SHUT_RDWR)
-        self.conn.close()
+    # Useful info:
+    # * https://stackoverflow.com/questions/3757289/tcp-option-so-linger-zero-when-its-required)
+    # * https://docs.microsoft.com/en-us/windows/desktop/WinSock/graceful-shutdown-linger-options-and-socket-closure-2
 
-
+    # Sender should send_shutdown instead of nuking, when done.
     def send_shutdown(self):
         self.set_keepalive(False)
-        self.conn.shutdown(socket.SHUT_WR)
         try:
-            self.recv()
-            assert False
-        except OSError:
+            self.conn.shutdown(socket.SHUT_WR)
+        except socket.error:
             pass
-        self.conn.shutdown(socket.SHUT_RD)
-        self.conn.close()
+        self.wait_for_disconnect()
 
 
     # Allows sending on other threads still.
-    def wait_for_shutdown(self):
-        self.set_keepalive(False)
+    def wait_for_disconnect(self):
         try:
             self.recv()
             assert False
         except OSError:
             pass
-        self.conn.shutdown(socket.SHUT_RDWR)
-        self.conn.close()
+        self.nuke()
 
 
     def nuke(self):
+        self.alive = False
         self.set_keepalive(False)
-
-        try:
-            self.conn.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-
-        try:
-            self.conn.close()
-        except OSError:
-            pass
+        nuke_socket(self.conn)
 
 
     def _th_keepalive(self):
@@ -417,3 +404,5 @@ class PacketConn(object):
 
             finally:
                 self.keepalive_thread = None
+        self.nuke()
+

@@ -467,7 +467,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
 
         output_files.append( [name.decode(), data] )
 
-    pconn.shutdown()
+    pconn.nuke()
 
     for n_d in output_files:
         n_d[1] = decompress(n_d[1], n_d[0])

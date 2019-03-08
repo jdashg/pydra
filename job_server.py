@@ -5,10 +5,11 @@ from common import *
 import net_utils as nu
 
 import itertools
+import random
 
 g_cvar = threading.Condition()
 job_queue_by_key = {}
-worker_queue_by_key = {}
+workers_by_key = {}
 
 # --
 
@@ -81,14 +82,14 @@ class Worker(object):
 
         for key in self.keys:
             if new_val:
-                worker_queue = worker_queue_by_key.setdefault(key, [])
-                worker_queue.append(self)
+                workers = workers_by_key.setdefault(key, set())
+                workers.add(self)
                 g_cvar.notify()
             else:
-                worker_queue = worker_queue_by_key[key]
-                worker_queue.remove(self)
-                if not worker_queue:
-                    del worker_queue_by_key[key]
+                workers = workers_by_key[key]
+                workers.remove(self)
+                if not workers:
+                    del workers_by_key[key]
 
 # --
 
@@ -124,7 +125,7 @@ def worker_accept(pconn):
         with g_cvar:
             worker.set_active(True)
 
-        pconn.wait_for_shutdown()
+        pconn.wait_for_disconnect()
     except OSError:
         pass
     finally:
@@ -139,12 +140,11 @@ def matchmake():
     next_jobs = sorted(next_jobs, key=lambda x: x.id)
     for job in next_jobs:
         try:
-            worker_queue = worker_queue_by_key[job.key]
+            workers = workers_by_key[job.key]
         except KeyError:
             continue
-
-        worker = worker_queue.pop(0) # Always non-empty.
-        worker_queue.append(worker)
+        assert len(workers)
+        worker = random.sample(workers, 1)[0]
 
         job.set_active(False)
 
