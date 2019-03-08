@@ -99,8 +99,8 @@ def th_on_accept_work(conn, addr):
     except OSError:
         pass
     finally:
-        logging.debug(conn_prefix + '<disconnected>')
         available_slots += 1
+        logging.debug(conn_prefix + '<disconnected>')
         with available_slots_cv:
             available_slots_cv.notify_all()
 
