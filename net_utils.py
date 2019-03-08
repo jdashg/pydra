@@ -15,9 +15,9 @@ import traceback
 
 # --
 
-# Subclass socket.error, because it's not usually useful to rely on detecting a
+# Subclass OSError, because it's not usually useful to rely on detecting a
 # 'clean' shutdown like this.
-class recv_n_eof(socket.error):
+class recv_n_eof(OSError):
     pass
 
 # --
@@ -125,12 +125,12 @@ def recv_bytes(conn):
 def nuke_socket(conn):
     try:
         conn.shutdown(socket.SHUT_RDWR)
-    except socket.error:
+    except OSError:
         pass
 
     try:
         conn.close()
-    except socket.error:
+    except OSError:
         pass
 
 # --
@@ -176,7 +176,7 @@ class Server(object):
                     try:
                         s.bind(gai[4])
                         s.listen()
-                    except socket.error:
+                    except OSError:
                         continue
                     self.s_by_gai[gai] = s
                     threading.Thread(target=self._th_accept_loop, args=(gai, s)).start()
@@ -203,7 +203,7 @@ class Server(object):
         while True:
             try:
                 (conn, addr) = s.accept()
-            except socket.error:
+            except OSError:
                 break
 
             threading.Thread(target=self._th_on_accept, args=(conn, addr)).start()
@@ -246,7 +246,7 @@ def connect_any(addrs, timeout=socket.getdefaulttimeout()):
                 s.connect(remote_addr)
             except socket.timeout:
                 return
-            except socket.error:
+            except OSError:
                 if not winner[0]:
                     outer_stack_str = traceback.format_list(outer_stack)
                     outer_stack_str = '\n'.join(outer_stack_str)
@@ -316,7 +316,7 @@ class PacketConn(object):
                         b = recv_n(self.conn, b_len)
                     return b
         except (socket.timeout, recv_n_eof) as e:
-            raise socket.error(e) # Treat timeout and EOF as errors.
+            raise OSError(e) # Treat timeout and EOF as errors.
 
 
     def send_t(self, t, v):
@@ -364,7 +364,7 @@ class PacketConn(object):
         try:
             self.recv()
             assert False
-        except socket.error:
+        except OSError:
             pass
         self.conn.shutdown(socket.SHUT_RD)
         self.conn.close()
@@ -376,7 +376,7 @@ class PacketConn(object):
         try:
             self.recv()
             assert False
-        except socket.error:
+        except OSError:
             pass
         self.conn.shutdown(socket.SHUT_RDWR)
         self.conn.close()
@@ -387,12 +387,12 @@ class PacketConn(object):
 
         try:
             self.conn.shutdown(socket.SHUT_RDWR)
-        except socket.error:
+        except OSError:
             pass
 
         try:
             self.conn.close()
-        except socket.error:
+        except OSError:
             pass
 
 

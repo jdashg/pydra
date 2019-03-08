@@ -106,7 +106,7 @@ def job_accept(pconn):
             try:
                 pconn.recv() # ignored
                 continue
-            except socket.error:
+            except OSError:
                 break
     finally:
         if job:
@@ -126,8 +126,8 @@ def worker_accept(pconn):
 
         try:
             pconn.wait_for_shutdown()
-        except socket.error:
-            # socket.error because the client exiting quickly can axe the connection.
+        except OSError:
+            # OSError because the client exiting quickly can axe the connection.
             pass
     finally:
         if worker:
@@ -179,7 +179,7 @@ def th_on_accept(conn, addr):
     try:
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         conn_type = pconn.recv()
-    except socket.error:
+    except OSError:
         logging.warning('timeout')
         return
 

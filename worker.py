@@ -29,7 +29,7 @@ if  __name__ == '__main__':
                 text = pconn.recv().decode()
                 text = text.replace('\n', '\n' + ' '*len(conn_prefix))
                 locked_print(conn_prefix, text)
-        except socket.error:
+        except OSError:
             pass
         finally:
             logging.debug(conn_prefix + '<disconnected>')
@@ -86,7 +86,7 @@ def run_worker(n):
             (mod_name, subkey) = key.split(b'|', 1)
             m = MODS[mod_name.decode()]
             m.pydra_job_worker(pconn, subkey)
-        except socket.error:
+        except OSError:
             pass
         finally:
             logging.debug(conn_prefix + '<disconnected>')
@@ -138,7 +138,7 @@ def run_worker(n):
                     return
 
                 time.sleep(1.0)
-        except socket.error:
+        except OSError:
             logging.warning(worker_prefix + 'Socket disconnected.')
             pass
         finally:

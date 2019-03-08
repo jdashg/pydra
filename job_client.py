@@ -41,7 +41,7 @@ class LogToWorker(logging.Handler):
                 #print('sending', text)
                 self.pconn.send(text.encode())
                 #print('sent')
-            except socket.error as e:
+            except OSError as e:
                 output = ['LogToWorker failed: {}'.format(e)]
                 output += ['|' + x for x in text.split('\n')]
                 sys.stderr.write('\n'.join(output))
@@ -90,7 +90,7 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
                 worker_pconn.send(key)
 
                 ret = fn_pydra_job_client(worker_pconn, subkey, *args)
-            except socket.error:
+            except OSError:
                 ret = None
             finally:
                 worker_pconn.nuke()
@@ -100,7 +100,7 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
 
             server_pconn.shutdown()
             return ret
-    except socket.error:
+    except OSError:
         logging.warning('server_conn died:\n' + traceback.format_exc())
     finally:
         server_pconn.nuke()
