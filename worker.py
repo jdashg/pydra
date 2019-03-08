@@ -179,9 +179,12 @@ def advert_to_server():
 
         with utilization_cv:
             while pconn.alive:
-                avail_slots = CONFIG['WORKERS'] - active_slots
+                max_slots = CONFIG['WORKERS']
+                avail_slots = max_slots - active_slots
                 cpu_idle = len(cpu_load) - (sum(cpu_load) / 100.0)
                 avail_slots = min(avail_slots, cpu_idle)
+                if avail_slots > max_slots - 1:
+                    avail_slots = max_slots
                 pconn.send_t(F64_T, avail_slots)
 
                 utilization_cv.wait()
