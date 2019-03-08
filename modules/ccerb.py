@@ -3,6 +3,7 @@ assert __name__ != '__main__'
 
 import lzma
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -25,14 +26,22 @@ COMPRESS_ZLIB_LEVEL = 1 # ~115Mbps compressing
 
 # --
 
+RE_PARENS = re.compile(b'[(][^)]+[)]')
+
 def get_cc_key(path):
     p = subprocess.run([path, '--version'], capture_output=True)
     if p.stderr:
         key = p.stderr # cl
     else:
         key = p.stdout # cc-like
-    (key, _) = key.split(b'\n', 1)
-    (_, key) = key.split(b' ', 1)
+    key = key.split(b'\n', 1)[0].strip()
+
+    if b'(GCC)' in key:
+        key = b' '.join(key.split(b' ')[1:2])
+
+    parens = RE_PARENS.search(key)
+    if parens:
+        key = key.replace(parens.group(0), b'', 1)
 
     #logging.info('{} -> {}'.format(path, key))
     return key
