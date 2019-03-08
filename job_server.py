@@ -135,7 +135,7 @@ def worker_accept(pconn):
                 if worker.avail_slots == avail_slots:
                     continue
                 worker.avail_slots = avail_slots
-                logging.warning('{}.avail_slots = {}'.format(worker, worker.avail_slots))
+                logging.warning('{}.avail_slots = {:.2f}'.format(worker, worker.avail_slots))
                 worker.set_active(bool(worker.avail_slots))
     except OSError:
         pass

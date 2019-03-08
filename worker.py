@@ -6,6 +6,7 @@ import pydra_mod
 
 import itertools
 import job_client
+import psutil
 import threading
 
 # --------------------------------
@@ -35,8 +36,7 @@ def th_on_accept_log(conn, addr):
 
 # --
 
-addr = CONFIG['LOG_ADDR']
-log_server = nu.Server([addr], target=th_on_accept_log)
+log_server = nu.Server([CONFIG['LOG_ADDR']], target=th_on_accept_log)
 log_server.listen_until_shutdown()
 
 # ---------------------------
@@ -56,36 +56,32 @@ def get_mods_by_key():
 
 # --
 
-addr = CONFIG['WORKER_BASE_ADDR']
 
-worker_prefix = '[workerd] '
-
-logging.info(worker_prefix + 'addr: {}'.format(addr))
 nice_down()
 
-work_server = None
+worker_prefix = '[workerd] '
 work_conn_counter = itertools.count(1)
 
-MAX_WORKERS = CONFIG['WORKERS']
-available_slots_cv = threading.Condition()
-available_slots = MAX_WORKERS
+utilization_cv = threading.Condition()
+active_slots = 0
+cpu_load = 0.0
 
 # --
 
 def th_on_accept_work(conn, addr):
     conn_id = next(work_conn_counter)
-    conn_prefix = worker_prefix + '[job {}] '.format(conn_id)
+    conn_prefix = worker_prefix + '[worklet {}] '.format(conn_id)
 
+    global active_slots
 
     try:
-        global available_slots
-        available_slots -= 1
-        if available_slots < 1:
+        active_slots += 1
+        if active_slots > CONFIG['WORKERS']:
             logging.info(conn_prefix + '<refused>')
             return
         logging.debug(conn_prefix + '<connected>')
-        with available_slots_cv:
-            available_slots_cv.notify_all()
+        with utilization_cv:
+            utilization_cv.notify_all()
 
         pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         hostname = pconn.recv().decode()
@@ -99,15 +95,34 @@ def th_on_accept_work(conn, addr):
     except OSError:
         pass
     finally:
-        available_slots += 1
+        active_slots -= 1
         logging.debug(conn_prefix + '<disconnected>')
-        with available_slots_cv:
-            available_slots_cv.notify_all()
+        with utilization_cv:
+            utilization_cv.notify_all()
 
-work_server = nu.Server([addr], target=th_on_accept_work)
+work_server = nu.Server([CONFIG['WORKER_BASE_ADDR']], target=th_on_accept_work)
 work_server.listen_until_shutdown()
 
 # --
+
+def th_cpu_percent():
+    try:
+        import psutil
+    except ImportError:
+        logging.warning('cpu load tracking requires psutil, disabling...')
+        return
+
+    global cpu_load
+
+    while True:
+        cpu_load = psutil.cpu_percent(interval=None, percpu=True) # [0,100]
+        with utilization_cv:
+            utilization_cv.notify_all()
+        time.sleep(3.0)
+
+threading.Thread(target=th_cpu_percent, daemon=True).start()
+
+# -
 
 def advert_to_server():
     if not work_server:
@@ -162,13 +177,15 @@ def advert_to_server():
         wap.addrs = addrs
         pconn.send(wap.encode())
 
-        with available_slots_cv:
+        with utilization_cv:
             while pconn.alive:
-                cur = available_slots
-                if cur < 1:
-                    cur = 0
-                pconn.send_t(F64_T, cur)
-                available_slots_cv.wait(1.0)
+                avail_slots = CONFIG['WORKERS'] - active_slots
+                cpu_idle = len(cpu_load) - (sum(cpu_load) / 100.0)
+                avail_slots = min(avail_slots, cpu_idle)
+                pconn.send_t(F64_T, avail_slots)
+
+                utilization_cv.wait()
+                time.sleep(0.1) # Minimum delay between updates
     except OSError:
         pass
     finally:

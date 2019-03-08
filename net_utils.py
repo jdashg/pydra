@@ -175,8 +175,13 @@ class Server(object):
                     s = socket.socket(gai[0])
                     try:
                         s.bind(gai[4])
+                    except OSError:
+                        logging.warning('Failed to socket.bind({}).'.format(gai[4]))
+                        continue
+                    try:
                         s.listen()
                     except OSError:
+                        traceback.print_exc()
                         continue
                     self.s_by_gai[gai] = s
                     threading.Thread(target=self._th_accept_loop, args=(gai, s)).start()
