@@ -186,7 +186,12 @@ def matchmake_loop():
             wap = WorkerAssignmentPacket()
             wap.hostname = worker.hostname
             wap.addrs = worker.addrs
-            job.pconn.send(wap.encode())
+            try:
+                job.pconn.send(wap.encode())
+            except OSError:
+                logging.warning('Disconnect during matchmaking.')
+                job.pconn.nuke()
+                continue
 
 
 threading.Thread(target=matchmake_loop, daemon=True).start()
