@@ -182,6 +182,7 @@ def nice_down():
     else:
         try:
             os.nice(10)
+            return
         except PermissionError:
             pass
     logging.warning('Warning: nice_down failed.')
