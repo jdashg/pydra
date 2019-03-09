@@ -65,7 +65,7 @@ def get_cc_key(path):
         if b'(GCC)' in spew:
             prog = b'gcc'
             p2 = subprocess.run([path, '-dumpmachine'], capture_output=True)
-            target = p2.stdout
+            target = p2.stdout.strip()
         else:
             prog = b'clang'
             target = spew.split(b'\n', 2)[1]
