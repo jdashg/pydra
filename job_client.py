@@ -67,40 +67,34 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
     if not server_conn:
         logging.error('Failed to connect to server: {}'.format(addr))
         return None
-    server_pconn = nu.PacketConn(server_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
     try:
+        server_pconn = nu.PacketConn(server_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
         server_pconn.send(b'job')
 
         server_pconn.send(CONFIG['HOSTNAME'].encode())
         server_pconn.send(key)
 
         while True:
+            server_pconn.send_t(BOOL_T, False)
             wap = WorkerAssignmentPacket.decode(server_pconn.recv())
 
-            addrs = [x.addr for x in wap.addrs]
-            worker_conn = nu.connect_any(addrs, timeout=CONFIG['TIMEOUT_TO_WORKER'])
-            if not worker_conn:
-                logging.error('Failed to connect to worker: {}@{}'.format(wap.hostname, addrs))
-                server_pconn.send_t(BOOL_T, False)
-                continue
-            worker_pconn = nu.PacketConn(worker_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
-
             try:
+                addrs = [x.addr for x in wap.addrs]
+                worker_conn = nu.connect_any(addrs, timeout=CONFIG['TIMEOUT_TO_WORKER'])
+                if not worker_conn:
+                    logging.error('Failed to connect to worker: {}@{}'.format(wap.hostname, addrs))
+                    continue
+                worker_pconn = nu.PacketConn(worker_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+
                 worker_pconn.send(CONFIG['HOSTNAME'].encode())
                 worker_pconn.send(key)
 
-                ret = fn_pydra_job_client(worker_pconn, subkey, *args)
+                return fn_pydra_job_client(worker_pconn, subkey, *args)
             except OSError:
-                ret = None
+                pass
             finally:
                 worker_pconn.nuke()
-            if ret == None:
-                server_pconn.send(b'')
-                continue
-
-            server_pconn.nuke()
-            return ret
     except OSError:
         logging.warning('server_conn died:\n' + traceback.format_exc())
     finally:

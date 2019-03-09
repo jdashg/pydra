@@ -144,7 +144,8 @@ def advert_to_server():
         logging.error(worker_prefix + 'Failed to connect: {}'.format(addr))
         return
     pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
-    logging.warning(worker_prefix + 'Connected to job_server: {}'.format(pconn.conn.getpeername()))
+    logging.warning(worker_prefix + 'Connected to job_server {} as {}'.format(
+            pconn.conn.getpeername(), CONFIG['HOSTNAME']))
 
 
     def th_nuke_on_recv():

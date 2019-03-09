@@ -108,11 +108,12 @@ def job_accept(pconn):
 
         job = Job(pconn, hostname, key)
         while True:
+            # On recv, request new worker.
+            # Remote will kill socket if its done.
+            pconn.recv_t(BOOL_T)
             with g_cvar:
                 job.set_active(True)
-
-            pconn.recv() # Remote will kill socket if its done.
-            continue # Recv dummy val means repeat.
+            continue
 
     except OSError:
         pass
@@ -170,7 +171,13 @@ def matchmake_loop():
         while True:
             (job, worker) = matchmake()
             if not job:
-                logging.info('No more matches...')
+                info = 'Outstanding jobs:'
+                if job_queue_by_key:
+                    info = '\n'.join([info] +
+                        ['  {}: {}'.format(k, len(v)) for (k,v) in job_queue_by_key.items()])
+                else:
+                    info += ' None'
+                logging.warning(info)
                 g_cvar.wait()
                 continue
 
