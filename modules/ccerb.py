@@ -25,23 +25,54 @@ COMPRESS_ZLIB_LEVEL = 1 # ~115Mbps compressing
 #COMPRESS_LZMA = True # ~2Mbps compressing
 
 # --
+'''
+$ clang --version
+clang version 7.0.1 (tags/RELEASE_701/final)
+Target: x86_64-pc-linux-gnu
+Thread model: posix
+InstalledDir: /usr/bin
+'''
+'''
+$ gcc --version
+gcc (GCC) 8.2.1 20181127
+Copyright (C) 2018 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+$ gcc -dumpmachine
+x86_64-pc-linux-gnu
+'''
+'''
+>cl
+Microsoft (R) C/C++ Optimizing Compiler Version 19.16.27025.1 for x64
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+usage: cl [ option... ] filename... [ /link linkoption... ]
+'''
 
 RE_PARENS = re.compile(b'[(][^)]+[)]')
+RE_VERSION = re.compile(b'[0-9][.0-9]+')
 
 def get_cc_key(path):
     p = subprocess.run([path, '--version'], capture_output=True)
     if p.stderr:
-        key = p.stderr # cl
+        spew = p.stderr # cl
+        prog = b'cl'
+        target = spew.split(b'\r\n', 1)[0]
+        target = target.split(b'for ', 1)[1]
     else:
-        key = p.stdout # cc-like
-    key = key.split(b'\n', 1)[0].strip()
+        spew = p.stdout # cc-like
+        if b'(GCC)' in spew:
+            prog = b'gcc'
+            p2 = subprocess.run([path, '-dumpmachine'], capture_output=True)
+            target = p2.stdout
+        else:
+            prog = b'clang'
+            target = spew.split(b'\n', 2)[1]
+            target = target.split(b' ')[1]
+    version = RE_VERSION.search(spew).group()
 
-    if b'(GCC)' in key:
-        key = b' '.join(key.split(b' ')[1:2])
-
-    parens = RE_PARENS.search(key)
-    if parens:
-        key = key.replace(parens.group(0), b'', 1)
+    key = b' '.join([prog, version, target])
 
     #logging.info('{} -> {}'.format(path, key))
     return key

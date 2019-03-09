@@ -130,7 +130,7 @@ def advert_to_server():
         return
     mods_by_key = get_mods_by_key()
     keys = list(mods_by_key.keys())
-    logging.debug(worker_prefix + 'keys: {}'.format(keys))
+    logging.warning(worker_prefix + 'keys: {}'.format(keys))
 
     gais = work_server.get_gais()
     addrs = [Address(x[4]) for x in gais]
