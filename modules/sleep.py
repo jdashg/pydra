@@ -24,7 +24,7 @@ def pydra_job_client(pconn, subkey, delay):
     return True
 
 
-def pydra_job_worker(pconn, subkey):
+def pydra_job_worker(pconn, worker_hostname, subkey):
     delay = pconn.recv_t(common.F64_T)
     time.sleep(delay)
     pconn.send(b'\0')

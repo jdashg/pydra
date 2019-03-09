@@ -59,7 +59,7 @@ def get_mods_by_key():
 
 nice_down()
 
-worker_prefix = '[workerd] '
+worker_prefix = ''
 work_conn_counter = itertools.count(1)
 
 utilization_cv = threading.Condition()
@@ -91,7 +91,7 @@ def th_on_accept_work(conn, addr):
 
         (mod_name, subkey) = key.split(b'|', 1)
         m = MODS[mod_name.decode()]
-        m.pydra_job_worker(pconn, subkey)
+        m.pydra_job_worker(pconn, hostname, subkey)
     except OSError:
         pass
     finally:

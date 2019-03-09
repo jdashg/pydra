@@ -475,7 +475,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
     return (retcode, stdout, stderr, output_files)
 
 
-def pydra_job_worker(pconn, subkey):
+def pydra_job_worker(pconn, worker_hostname, subkey):
     t = MsTimer()
     cc_bin = CC_BY_KEY[subkey]
     compile_args = [cc_bin]
@@ -506,6 +506,7 @@ def pydra_job_worker(pconn, subkey):
         pconn.send(data)
     pconn.send(b'')
 
-    logging.warning('Worker: {}: ({}) Complete.'.format(source_file_name, t.time()))
+    logging.warning('Worker for {}: {}: ({}) Complete.'.format(
+            worker_hostname, source_file_name, t.time()))
 
     pconn.send_shutdown()
