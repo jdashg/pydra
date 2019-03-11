@@ -361,17 +361,20 @@ def pydra_shim(fn_dispatch, *mod_args):
         if has_show_includes:
             stdout_prefix = p.stderr
 
+        # Compress in shim, not client.
+        preproc_data = compress(preproc_data, source_file_name)
+
         # -
 
         ret = fn_dispatch(cc_key, compile_args, source_file_name, preproc_data)
         if ret == None:
-            raise ExShimOut('dispatch failed')
+            raise ExShimOut('dispatch failed', logging.error)
         (retcode, stdout, stderr, output_files) = ret
         total_bytes = sum([len(x) for (_,x) in output_files])
         logging.info('  {}: ({}) Dispatch complete. ({} bytes, {} files) Writing...'.format(
                 source_file_name, t.time(), total_bytes, len(output_files)))
 
-        # --
+        # -
 
         write_files(os.getcwd(), output_files)
 
@@ -472,16 +475,12 @@ def decompress(data, name=''):
 
 # -
 
-def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data):
-    preproc_data = compress(preproc_data, source_file_name)
-
-    # -
-
+def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data_compressed):
     for x in compile_args:
         pconn.send(x.encode())
     pconn.send(b'')
     pconn.send(source_file_name.encode())
-    pconn.send(preproc_data)
+    pconn.send(preproc_data_compressed)
 
     # -
 
@@ -525,15 +524,13 @@ def pydra_job_worker(pconn, worker_hostname, subkey):
 
     (retcode, stdout, stderr, output_files) = run_in_temp_dir(input_files, compile_args)
 
-    for n_d in output_files:
-        n_d[1] = compress(n_d[1], n_d[0])
-
     pconn.send_t(I32_T, retcode)
     pconn.send(stdout)
     pconn.send(stderr)
 
     for (name,data) in output_files:
         pconn.send(name.encode())
+        data = compress(data, name) # Compress interleaved with sending. (concurrent?)
         pconn.send(data)
     pconn.send(b'')
 
