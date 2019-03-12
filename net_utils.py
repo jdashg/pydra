@@ -293,8 +293,12 @@ class PacketConn(object):
 
         if timeout != False:
             self.set_timeout(timeout, keepalive=keepalive)
-
-        self.send(self.magic)
+        try:
+            self.send(self.magic)
+        except OSError:
+            self.nuke()
+            # If we raise here, we never assign, complicating error handling.
+            pass
 
 
     LONG_LEN_THRESHOLD = 0xfe
