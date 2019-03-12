@@ -488,6 +488,8 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
     stdout = pconn.recv()
     stderr = pconn.recv()
 
+    use_compression = pconn.recv_t(BOOL_T)
+
     output_files = []
     while True:
         name = pconn.recv()
@@ -499,8 +501,9 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
 
     pconn.nuke()
 
-    for n_d in output_files:
-        n_d[1] = decompress(n_d[1], n_d[0])
+    if use_compression:
+        for n_d in output_files:
+            n_d[1] = decompress(n_d[1], n_d[0])
 
     return (retcode, stdout, stderr, output_files)
 
@@ -528,9 +531,15 @@ def pydra_job_worker(pconn, worker_hostname, subkey):
     pconn.send(stdout)
     pconn.send(stderr)
 
+    local_addr = pconn.conn.getsockname()
+    remote_addr = pconn.conn.getpeername()
+    use_compression = remote_addr[0] != local_addr[0]
+    pconn.send_t(BOOL_T, use_compression)
+
     for (name,data) in output_files:
         pconn.send(name.encode())
-        data = compress(data, name) # Compress interleaved with sending. (concurrent?)
+        if use_compression:
+            data = compress(data, name) # Compress interleaved with sending. (concurrent?)
         pconn.send(data)
     pconn.send(b'')
 
