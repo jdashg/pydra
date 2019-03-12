@@ -17,7 +17,7 @@ import traceback
 
 # --
 
-SEMVER_MAJOR = 2
+SEMVER_MAJOR = 3
 nu.PacketConn.MAGIC += nu.pack_t(nu.U32_T, SEMVER_MAJOR)
 
 PYDRA_HOME = pathlib.Path.home() / '.pydra'
