@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 assert __name__ == '__main__'
 
-import signal
 import subprocess
 import sys
 import threading
@@ -12,12 +11,24 @@ import time
 CHECK_INTERVAL = 60.0
 PRETEND_UPDATE = False
 
-SUB_ARGS = sys.argv[1:]
+args = sys.argv[1:]
+while True:
+    cur = args.pop()
+    if cur == '--pretend':
+        PRETEND_UPDATE = True
+        continue
+    if cur == '--secs':
+        CHECK_INTERVAL = float(args.pop())
+        continue
+    args.append(cur)
+    break
+
+SUB_ARGS = args
 
 # -
 
-def git_head():
-    return subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip()
+def git_rev(rev):
+    return subprocess.check_output(['git', 'rev-parse', rev]).strip()
 
 # -
 
@@ -25,25 +36,36 @@ should_restart = True
 
 def th_kill_on_update(p):
     global should_restart
-    start_head = git_head()
-    while True:
-        try:
-            stdout = subprocess.check_output(['git', 'pull', '--no-ff']) # Squelch stdout.
-        except CalledProcessError:
-            sys.stdout.buffer.write(stdout)
-            break
-        pull_head = git_head()
 
-        if pull_head == start_head and not PRETEND_UPDATE:
+    first_time = True
+    while True:
+        if not first_time: # Skip the first wait.
             time.sleep(CHECK_INTERVAL)
+        first_time = False
+
+        try:
+            rbranch = subprocess.check_output([
+                    'git', 'rev-parse', '--abbrev-ref', '@{upstream}']).strip().decode()
+        except subprocess.CalledProcessError:
+            continue
+        (remote, rbranch) = rbranch.split('/', 1)
+
+        try:
+            # TODO: git fetch --progress
+            subprocess.run(['git', 'fetch', remote, rbranch], check=True, capture_output=True) # Mute output.
+        except subprocess.CalledProcessError:
+            continue
+        head = git_rev('HEAD')
+        fetch_head = git_rev('FETCH_HEAD')
+
+        if head == fetch_head and not PRETEND_UPDATE:
             continue
 
-        print('[auto_update_git] Updated {}->{}, restarting...'.format(
-                start_head, pull_head))
-        should_restart = True
         break
+
+    print('[auto_update_git] Downloaded update {}->{}, restarting...'.format(head, fetch_head))
     p.terminate()
-    return
+    should_restart = True
 
 # -
 
