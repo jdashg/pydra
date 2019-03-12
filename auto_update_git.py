@@ -50,7 +50,20 @@ def th_kill_on_update(p):
 try:
     while should_restart:
         should_restart = False
-        subprocess.check_call(['git', 'pull', '--no-ff']) # Update or fail early.
+
+        # Update or fail early.
+        p = subprocess.run(['git', 'pull', '--no-ff'], capture_output=True)
+        if p.returncode:
+            sys.stdout.buffer.write(p.stdout)
+            sys.stderr.buffer.write(p.stderr)
+            if b'Permission denied' in p.stderr:
+                push_url = subprocess.check_output(['git', 'remote', 'get-url', 'origin']).strip()
+                sys.stderr.write('''
+If your upstream fetch url is not unauthenticated https, try:
+  git remote set-url origin https://github.com/jdashg/pydra.git
+  git remote set-url --push origin {}'''.format(push_url.decode()))
+            exit(1)
+
 
         p = subprocess.Popen(SUB_ARGS)
         threading.Thread(target=th_kill_on_update, args=(p,), daemon=True).start()
