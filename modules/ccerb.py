@@ -445,7 +445,7 @@ def compress(data, name):
         mbps = float('Inf')
     percent = int(c_size / d_size * 100)
     if SPEW_COMPRESSION_INFO:
-        logging.info('  <compress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, d_size, c_size, percent, str(diff)))
+        logging.info('  <compress(%s): %.3f Mb/s: %s->%s bytes (%s%%) in %s>'.format(name, mbps, d_size, c_size, percent, diff))
 
     return data
 
@@ -469,7 +469,7 @@ def decompress(data, name=''):
         mbps = float('Inf')
     percent = int(c_size / d_size * 100)
     if SPEW_COMPRESSION_INFO:
-        logging.debug('  <decompress({}): {:.3f} Mb/s: {}->{} bytes ({}%) in {}>'.format(name, mbps, c_size, d_size, percent, str(diff)))
+        logging.debug('  <decompress(%s): %.3f Mb/s: %s->%s bytes (%s%%) in %s>'.format(name, mbps, c_size, d_size, percent, diff))
 
     return data
 
@@ -489,6 +489,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
     stderr = pconn.recv()
 
     use_compression = pconn.recv_t(BOOL_T)
+    logging.info('use_compression: %s', use_compression)
 
     output_files = []
     while True:
