@@ -17,7 +17,7 @@ import traceback
 
 # Subclass OSError, because it's not usually useful to rely on detecting a
 # 'clean' shutdown like this.
-class recv_n_eof(OSError):
+class ex_recv_n_eof(OSError):
     pass
 
 # --
@@ -29,7 +29,7 @@ def recv_n(conn, n):
         while view:
             got = conn.recv_into(view)
             if not got:
-                raise recv_n_eof()
+                raise ex_recv_n_eof()
             view = view[got:]
     return bytes(ret)
 
@@ -280,8 +280,13 @@ def connect_any(addrs, timeout=socket.getdefaulttimeout()):
 
 # --
 
+class ex_pc_bad_magic(OSError):
+    pass
+
 class PacketConn(object):
-    def __init__(self, conn, timeout=False, keepalive=False):
+    MAGIC = b'\x91\x7c\x56\x3e' # via hex(random.getrandbits(32))
+
+    def __init__(self, conn, timeout=False, keepalive=False, **kwargs):
         self.alive = True
         self.conn = conn
         self.slock = threading.RLock()
@@ -289,9 +294,17 @@ class PacketConn(object):
         self.keepalive_cond = threading.Condition()
         self.keepalive_ratio = 2.5
         self.keepalive_thread = None
+        try:
+            self.magic = kwargs['magic']
+        except KeyError:
+            self.magic = self.MAGIC
+        self.awaiting_magic = True
 
         if timeout != False:
             self.set_timeout(timeout, keepalive=keepalive)
+
+        self.send(self.magic)
+
 
     LONG_LEN_THRESHOLD = 0xfe
     KEEP_ALIVE_VAL = 0xff
@@ -310,6 +323,15 @@ class PacketConn(object):
     def recv(self):
         try:
             with self.rlock:
+                if self.awaiting_magic:
+                    self.awaiting_magic = False
+                    remote_magic = self.recv()
+                    if remote_magic != self.magic:
+                        err = 'Expected MAGIC {}, was {}'.format(self.magic, remote_magic)
+                        logging.warning(err)
+                        ex = ex_pc_bad_magic(err)
+                        ex.remote_magic = remote_magic
+                        raise ex
                 while True:
                     b_len = recv_t(self.conn, U8_T)
                     if b_len == self.KEEP_ALIVE_VAL:
@@ -321,10 +343,9 @@ class PacketConn(object):
                     if b_len:
                         b = recv_n(self.conn, b_len)
                     return b
-        except (socket.timeout, recv_n_eof) as e:
-            # Treat timeout and EOF as errors.
+        except OSError:
             self.nuke()
-            raise OSError(e)
+            raise
 
 
     def send_t(self, t, v):
