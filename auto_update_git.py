@@ -10,6 +10,7 @@ import time
 # -
 
 CHECK_INTERVAL = 60.0
+PRETEND_UPDATE = False
 
 SUB_ARGS = sys.argv[1:]
 
@@ -33,14 +34,15 @@ def th_kill_on_update(p):
             break
         pull_head = git_head()
 
-        if pull_head == start_head:
+        if pull_head == start_head and not PRETEND_UPDATE:
             time.sleep(CHECK_INTERVAL)
             continue
 
-        print('[auto_update_git] Updated {}->{}'.format(start_head, pull_head))
+        print('[auto_update_git] Updated {}->{}, restarting...'.format(
+                start_head, pull_head))
         should_restart = True
         break
-    p.send_signal(signal.SIGINT) # Gently!
+    p.terminate()
     return
 
 # -

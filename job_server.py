@@ -221,8 +221,4 @@ logging.warning('Hosting job_server at: {}'.format(addr))
 server = nu.Server([addr], target=th_on_accept)
 
 server.listen_until_shutdown()
-wait_for_keyboard()
-server.shutdown()
-
-#dump_thread_stacks()
-exit(0)
+exit_after_keyboard()

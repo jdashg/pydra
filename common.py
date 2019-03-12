@@ -151,12 +151,12 @@ class ByteWriter(object):
 
 # --
 
-def wait_for_keyboard():
+def exit_after_keyboard():
     try:
         while True:
             time.sleep(1000 * 1000)
     except KeyboardInterrupt:
-        pass
+        exit(0)
 
 # --
 

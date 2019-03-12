@@ -135,15 +135,6 @@ def nuke_socket(conn):
 
 # --
 
-def wait_for_keyboard():
-    try:
-        while True:
-            time.sleep(1000 * 1000)
-    except KeyboardInterrupt:
-        pass
-
-# --
-
 class Server(object):
     def __init__(self, addrs, target, on_accept_args=()):
         self.addrs = set(addrs)

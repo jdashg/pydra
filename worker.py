@@ -54,9 +54,6 @@ def get_mods_by_key():
 
 # --
 
-# --
-
-
 nice_down()
 
 worker_prefix = ''
@@ -204,10 +201,4 @@ try:
         time.sleep(1.0)
         logging.warning(worker_prefix + 'Reconnecting to server...')
 except KeyboardInterrupt:
-    pass
-
-log_server.shutdown()
-
-#[p.terminate() for p in procs]
-#dump_thread_stacks()
-exit(0)
+    exit(0)
