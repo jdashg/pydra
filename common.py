@@ -311,7 +311,7 @@ JOB_SERVER_MDNS_SERVICE = 'job_server._pydra._tcp.local.'
 def job_server_addr(timeout):
     addr = CONFIG['JOB_SERVER_ADDR']
     if addr[0]:
-        return addr
+        return (*addr, '')
 
     try:
         import zeroconf
@@ -326,5 +326,5 @@ def job_server_addr(timeout):
     if not info:
         return None
     host = socket.inet_ntop(socket.AF_INET, info.address)
-    logging.info('mDNS resolved %s as %s.', JOB_SERVER_MDNS_SERVICE, host)
-    return (host, info.port)
+    logging.error('mDNS resolved %s as %s (%s).', JOB_SERVER_MDNS_SERVICE, host, info.server)
+    return (host, info.port, info.server)

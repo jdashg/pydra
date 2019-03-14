@@ -236,6 +236,14 @@ if not addr[0]:
     except ImportError:
         logging.error('JOB_SERVER_ADDR[0]='' requires `pip install zeroconf`.')
         exit(1)
+
+    logging.warning('Checking for pre-existing mDNS job_server...')
+    existing = job_server_addr(timeout=1.0)
+    if existing:
+        logging.error('mDNS found existing job_server at %s (%s). Aborting...',
+                existing[0], existing[2])
+        exit(1)
+
     zc = zeroconf.Zeroconf()
 
     family=socket.AF_INET # zeroconf module doesn't support IPv6 yet.
@@ -246,9 +254,10 @@ if not addr[0]:
 
     host_ip_bytes = socket.inet_pton(family, addr[0])
 
+    server_name = CONFIG['HOSTNAME'] + '.local.'
     # If we don't specify properties, it defaults to None, and asserts deep in sending.
     info = zeroconf.ServiceInfo(JOB_SERVER_MDNS_SERVICE, JOB_SERVER_MDNS_SERVICE,
-                                host_ip_bytes, addr[1], properties=b'')
+                                host_ip_bytes, addr[1], properties=b'', server=server_name)
     zc.register_service(info)
 
 if addr[0] == 'localhost':
