@@ -64,7 +64,10 @@ def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
 
     timeout = CONFIG['TIMEOUT_CLIENT_TO_SERVER']
     addr = job_server_addr(timeout)
-    server_conn = nu.connect_any([addr], timeout=timeout)
+    if not addr:
+        logging.error('Failed to resolve mDNS job_server.')
+        return None
+    server_conn = nu.connect_any([addr[:2]], timeout=timeout)
     if not server_conn:
         logging.error('Failed to connect to server: {}'.format(addr))
         return None

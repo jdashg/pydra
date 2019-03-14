@@ -382,6 +382,10 @@ def pydra_shim(fn_dispatch, *mod_args):
 
         # -
 
+        for (name,_) in output_files:
+            if name.endswith('.pdb'):
+                assert not pathlib.Path(name).exists()
+
         write_files(os.getcwd(), output_files)
 
         sys.stdout.buffer.write(stdout_prefix)

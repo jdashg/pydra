@@ -240,8 +240,7 @@ if not addr[0]:
     logging.warning('Checking for pre-existing mDNS job_server...')
     existing = job_server_addr(timeout=1.0)
     if existing:
-        logging.error('mDNS found existing job_server at %s (%s). Aborting...',
-                existing[0], existing[2])
+        logging.error('mDNS found existing job_server at %s. Aborting...', existing)
         exit(1)
 
     zc = zeroconf.Zeroconf()

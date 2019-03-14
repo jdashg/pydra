@@ -311,7 +311,7 @@ JOB_SERVER_MDNS_SERVICE = 'job_server._pydra._tcp.local.'
 def job_server_addr(timeout):
     addr = CONFIG['JOB_SERVER_ADDR']
     if addr[0]:
-        return (*addr, '')
+        return (*addr, None)
 
     try:
         import zeroconf
