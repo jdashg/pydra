@@ -82,7 +82,7 @@ try:
         should_restart = False
 
         # Update or fail early.
-        p = subprocess.run(['git', 'pull', '--no-ff'], capture_output=True)
+        p = subprocess.run(['git', 'pull', '--ff-only'], capture_output=True)
         if p.returncode:
             sys.stdout.buffer.write(p.stdout)
             sys.stderr.buffer.write(p.stderr)
