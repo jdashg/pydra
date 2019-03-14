@@ -319,11 +319,11 @@ def job_server_addr(timeout):
     except ImportError:
         logging.error('JOB_SERVER_ADDR[0]='' requires `pip install zeroconf`.')
         return None
-
     zc = zeroconf.Zeroconf()
+
+    logging.info('Querying mDNS...')
     info = zc.get_service_info(JOB_SERVER_MDNS_SERVICE, JOB_SERVER_MDNS_SERVICE,
             timeout=timeout*1000)
-    print('zc.get_service_info', info)
     if not info:
         return None
     host = socket.inet_ntop(socket.AF_INET, info.address)

@@ -137,10 +137,15 @@ def advert_to_server():
 
     timeout = CONFIG['TIMEOUT_WORKER_TO_SERVER']
     addr = job_server_addr(timeout)
+    if not addr:
+        logging.warning(worker_prefix + 'No mDNS response from job_server.')
+        return
+
     conn = nu.connect_any([addr], timeout=timeout)
     if not conn:
         logging.error(worker_prefix + 'Failed to connect: {}'.format(addr))
         return
+
     pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
     logging.warning(worker_prefix + 'Connected to job_server {} as {}'.format(
             pconn.conn.getpeername(), CONFIG['HOSTNAME']))
