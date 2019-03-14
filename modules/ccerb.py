@@ -3,6 +3,7 @@ assert __name__ != '__main__'
 
 import lzma
 import os
+import pathlib
 import re
 import shutil
 import socket
@@ -277,7 +278,12 @@ def pydra_get_subkeys():
         'clang-4',
         'clang-5',
         'cl',
-    ] + CONFIG['CC_LIST']
+        pathlib.Path.home() / '.mozbuild/clang/bin/clang-cl.exe',
+    ]
+    try:
+        cc_list += CONFIG['CC_LIST']
+    except KeyError:
+        pass
 
     for path in cc_list:
         try:
