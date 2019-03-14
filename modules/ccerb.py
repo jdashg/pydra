@@ -278,7 +278,7 @@ def pydra_get_subkeys():
         'clang-4',
         'clang-5',
         'cl',
-        pathlib.Path.home() / '.mozbuild/clang/bin/clang-cl.exe',
+        str(pathlib.Path.home() / '.mozbuild/clang/bin/clang-cl.exe'),
     ]
     try:
         cc_list += CONFIG['CC_LIST']

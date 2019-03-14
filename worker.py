@@ -141,7 +141,7 @@ def advert_to_server():
         logging.warning(worker_prefix + 'No mDNS response from job_server.')
         return
 
-    conn = nu.connect_any([addr], timeout=timeout)
+    conn = nu.connect_any([addr[:2]], timeout=timeout)
     if not conn:
         logging.error(worker_prefix + 'Failed to connect: {}'.format(addr))
         return
