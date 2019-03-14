@@ -213,7 +213,44 @@ def th_on_accept(conn, addr):
 
 # --
 
+class MdnsListener(object):
+    def add_service(self, zc, s_type, name):
+        info = zc.get_service_info(s_type, name)
+        print("Service %s added, service info: %s" % (name, info))
+
+
+    def remove_service(self, zc, s_type, name):
+        print("Service %s removed" % (name,))
+
+
+
+# --
+
 addr = CONFIG['JOB_SERVER_ADDR']
+
+zc = None
+
+if not addr[0]:
+    try:
+        import zeroconf
+    except ImportError:
+        logging.error('JOB_SERVER_ADDR[0]='' requires `pip install zeroconf`.')
+        exit(1)
+    zc = zeroconf.Zeroconf()
+
+    family=socket.AF_INET # zeroconf module doesn't support IPv6 yet.
+    gais = socket.getaddrinfo('', addr[1], proto=socket.IPPROTO_TCP, family=family)
+    gai = gais[0]
+    addr = gai[4]
+    logging.warning(f'Advertizing on mDNS.')
+
+    host_ip_bytes = socket.inet_pton(family, addr[0])
+
+    # If we don't specify properties, it defaults to None, and asserts deep in sending.
+    info = zeroconf.ServiceInfo(JOB_SERVER_MDNS_SERVICE, JOB_SERVER_MDNS_SERVICE,
+                                host_ip_bytes, addr[1], properties=b'')
+    zc.register_service(info)
+
 if addr[0] == 'localhost':
     logging.error('Hosting job_server on localhost, which excludes remote hosts.')
 
@@ -221,4 +258,11 @@ logging.warning('Hosting job_server at: {}'.format(addr))
 server = nu.Server([addr], target=th_on_accept)
 
 server.listen_until_shutdown()
-exit_after_keyboard()
+
+try:
+    while True:
+        time.sleep(1000 * 1000)
+except KeyboardInterrupt:
+    if zc:
+        zc.close()
+exit(0)

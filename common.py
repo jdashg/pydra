@@ -46,13 +46,13 @@ class LockingLogHandler(logging.Handler):
 # --
 
 DEFAULT_CONFIG = {
-    'JOB_SERVER_ADDR': ('localhost', 38520),
+    'JOB_SERVER_ADDR': ('', 38520),
     'LOG_ADDR': ('localhost', 38521),
     'WORKER_BASE_ADDR': (socket.gethostname(), 38522),
     'WORKERS': os.cpu_count(),
     'HOSTNAME': socket.gethostname(),
     'TIMEOUT_CLIENT_TO_SERVER': 0.300,
-    'TIMEOUT_WORKER_TO_SERVER': 0.300,
+    'TIMEOUT_WORKER_TO_SERVER': 3.000,
     'TIMEOUT_TO_WORKER': 0.300,
     'TIMEOUT_TO_LOG': 0.300,
     'KEEPALIVE_TIMEOUT': 1.000,
@@ -304,3 +304,27 @@ class MsTimer(object):
         x = now - self.lap_start
         self.lap_start = now
         return self.Res(x * 1000.0)
+
+# --
+
+JOB_SERVER_MDNS_SERVICE = 'job_server._pydra._tcp.local.'
+
+def job_server_addr(timeout):
+    addr = CONFIG['JOB_SERVER_ADDR']
+    if addr[0]:
+        return addr
+
+    try:
+        import zeroconf
+    except ImportError:
+        logging.error('JOB_SERVER_ADDR[0]='' requires `pip install zeroconf`.')
+        return None
+
+    zc = zeroconf.Zeroconf()
+    info = zc.get_service_info(JOB_SERVER_MDNS_SERVICE, JOB_SERVER_MDNS_SERVICE,
+            timeout=timeout*1000)
+    print('zc.get_service_info', info)
+    if not info:
+        return None
+    host = socket.inet_ntop(socket.AF_INET, info.address)
+    return (host, info.port)

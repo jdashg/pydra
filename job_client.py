@@ -62,8 +62,9 @@ class LogToWorker(logging.Handler):
 def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
     key = make_key(mod_name, subkey)
 
-    addr = CONFIG['JOB_SERVER_ADDR']
-    server_conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_CLIENT_TO_SERVER'])
+    timeout = CONFIG['TIMEOUT_CLIENT_TO_SERVER']
+    addr = job_server_addr(timeout)
+    server_conn = nu.connect_any([addr], timeout=timeout)
     if not server_conn:
         logging.error('Failed to connect to server: {}'.format(addr))
         return None

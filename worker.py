@@ -135,8 +135,9 @@ def advert_to_server():
         logging.warning(worker_prefix + (keys, addrs))
         return
 
-    addr = CONFIG['JOB_SERVER_ADDR']
-    conn = nu.connect_any([addr], timeout=CONFIG['TIMEOUT_WORKER_TO_SERVER'])
+    timeout = CONFIG['TIMEOUT_WORKER_TO_SERVER']
+    addr = job_server_addr(timeout)
+    conn = nu.connect_any([addr], timeout=timeout)
     if not conn:
         logging.error(worker_prefix + 'Failed to connect: {}'.format(addr))
         return
