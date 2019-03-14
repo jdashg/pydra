@@ -326,5 +326,5 @@ def job_server_addr(timeout):
     if not info:
         return None
     host = socket.inet_ntop(socket.AF_INET, info.address)
-    logging.error('mDNS resolved %s as %s (%s).', JOB_SERVER_MDNS_SERVICE, host, info.server)
+    logging.info('mDNS resolved %s as %s (%s).', JOB_SERVER_MDNS_SERVICE, host, info.server)
     return (host, info.port, info.server)

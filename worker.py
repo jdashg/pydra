@@ -132,7 +132,7 @@ def advert_to_server():
     gais = work_server.get_gais()
     addrs = [Address(x[4]) for x in gais]
     if not (keys and addrs):
-        logging.warning(worker_prefix + (keys, addrs))
+        logging.warning(worker_prefix + str((keys, addrs)))
         return
 
     timeout = CONFIG['TIMEOUT_WORKER_TO_SERVER']
@@ -148,7 +148,7 @@ def advert_to_server():
 
     pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
     logging.warning(worker_prefix + 'Connected to job_server {} as {}'.format(
-            pconn.conn.getpeername(), CONFIG['HOSTNAME']))
+            addr, CONFIG['HOSTNAME']))
 
 
     def th_nuke_on_recv():
