@@ -233,8 +233,6 @@ def connect_any(addrs, timeout=socket.getdefaulttimeout()):
     winner_lock = threading.Lock()
     winner = [None] # box
 
-    outer_stack = traceback.extract_stack()
-
     def fn_thread(s, remote_addr):
         try:
             try:
@@ -244,9 +242,6 @@ def connect_any(addrs, timeout=socket.getdefaulttimeout()):
                 return
             except OSError:
                 if not winner[0]:
-                    outer_stack_str = traceback.format_list(outer_stack)
-                    outer_stack_str = '\n'.join(outer_stack_str)
-                    logging.warning('%s\nWithin:\n%s', traceback.format_exc(), outer_stack_str)
                     return
 
             if winner_lock.acquire(blocking=False):
@@ -263,7 +258,7 @@ def connect_any(addrs, timeout=socket.getdefaulttimeout()):
         return
 
     for s_addr in s_addr_list:
-        threading.Thread(target=fn_thread, args=tuple(s_addr)).start()
+        threading.Thread(target=fn_thread, args=tuple(s_addr), daemon=True).start()
 
     for _ in s_addr_list:
         completion_sem.acquire()

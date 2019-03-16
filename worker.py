@@ -2,7 +2,6 @@
 assert __name__ == '__main__'
 
 from common import *
-import pydra_mod
 
 import itertools
 import job_client
@@ -41,7 +40,7 @@ log_server.listen_until_shutdown()
 
 # ---------------------------
 
-MODS = pydra_mod.LoadModules()
+MODS = LoadPydraModules()
 logging.info('MODS', MODS)
 
 def get_mods_by_key():
@@ -53,8 +52,6 @@ def get_mods_by_key():
     return mods_by_key
 
 # --
-
-nice_down()
 
 worker_prefix = ''
 work_conn_counter = itertools.count(1)
@@ -170,20 +167,22 @@ def advert_to_server():
         pconn.nuke()
 
 
-    threading.Thread(target=th_nuke_on_recv).start()
-    threading.Thread(target=th_nuke_on_change).start()
+    threading.Thread(target=th_nuke_on_recv, daemon=True).start()
+    threading.Thread(target=th_nuke_on_change, daemon=True).start()
     try:
         pconn.send(b'worker')
 
-        wap = WorkerAdvertPacket()
-        wap.hostname = CONFIG['HOSTNAME']
-        wap.keys = keys
-        wap.addrs = addrs
-        pconn.send(wap.encode())
+        max_slots = CONFIG['WORKERS']
+
+        desc = WorkerDescriptor()
+        desc.hostname = CONFIG['HOSTNAME']
+        desc.max_slots = max_slots
+        desc.keys = keys
+        desc.addrs = addrs
+        pconn.send(desc.encode())
 
         with utilization_cv:
             while pconn.alive:
-                max_slots = CONFIG['WORKERS']
                 avail_slots = max_slots - active_slots
                 cpu_idle = len(cpu_load) - (sum(cpu_load) / 100.0)
                 avail_slots = min(avail_slots, cpu_idle)

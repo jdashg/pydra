@@ -2,9 +2,6 @@
 assert __name__ != '__main__'
 
 import common
-import job_client
-import pydra_mod
-
 import time
 
 # --
@@ -13,9 +10,10 @@ def pydra_get_subkeys():
     return [b'']
 
 
-def pydra_shim(fn_dispatch, delay):
+def pydra_shim(pydra_iface, delay):
     delay = float(delay)
-    return fn_dispatch(b'', delay)
+    job = pydra_iface.register_job(b'')
+    return job.dispatch(delay)
 
 
 def pydra_job_client(pconn, subkey, delay):

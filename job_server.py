@@ -5,11 +5,24 @@ from common import *
 import net_utils as nu
 
 import itertools
+import os
 import random
+import signal
 
 g_cvar = threading.Condition(threading.Lock())
 job_queue_by_key = {}
-workers_by_key = {}
+available_workers_by_key = {}
+connected_workers = set()
+connected_workers_by_key = {}
+karma_by_hostname = {}
+
+# --
+
+def add_karma_by_hostname(hostname, karma):
+    try:
+        karma_by_hostname[hostname] += karma
+    except KeyError:
+        karma_by_hostname[hostname] = karma
 
 # --
 
@@ -24,10 +37,18 @@ class Job(object):
         self.pconn = pconn
         self.hostname = hostname
         self.key = key
-
         self.id = next(self.next_id)
         self._active = False
+
+        logging.debug('%s connected.', self)
         return
+
+
+    def close(self):
+        logging.debug('%s disconnected.', self)
+        with g_cvar:
+            self.set_active(False)
+        self.pconn.nuke()
 
 
     def __lt__(a, b):
@@ -47,13 +68,12 @@ class Job(object):
         logging.info('{}{}'.format(plusminus[int(new_val)], self))
         self._active = new_val
 
+        job_queue = job_queue_by_key.setdefault(self.key, [])
         if new_val:
-            job_queue = job_queue_by_key.setdefault(self.key, [])
             job_queue.append(self)
             job_queue.sort()
             g_cvar.notify()
         else:
-            job_queue = job_queue_by_key[self.key]
             job_queue.remove(self)
             if not job_queue:
                 del job_queue_by_key[self.key]
@@ -63,19 +83,49 @@ class Job(object):
 class Worker(object):
     next_id = itertools.count()
 
-    def __init__(self, pconn, hostname, keys, addrs):
+    def __init__(self, pconn, desc):
         self.pconn = pconn
-        self.hostname = hostname
-        self.keys = keys
-        self.addrs = addrs
+        self.desc = desc
         self.avail_slots = 0.0
         self.id = next(self.next_id) # Purely informational.
         self._active = False
-        return
+
+        logging.warning('%s connected', self)
+
+        with g_cvar:
+            connected_workers.add(self)
+
+            for key in self.desc.keys:
+                workers = connected_workers_by_key.setdefault(key, set())
+                workers.add(self)
+
+
+    def close(self):
+        logging.warning('%s disconnected.', self)
+
+        with g_cvar:
+            self.set_active(False)
+
+            connected_workers.remove(self)
+
+            for key in self.desc.keys:
+                workers = connected_workers_by_key[key]
+                workers.remove(self)
+                if not workers:
+                    del connected_workers_by_key[key]
+
+                    # Purge outstanding jobs for the now-workerless key.
+                    try:
+                        for queue in job_queue_by_key[key]:
+                            for j in queue:
+                                j.pconn.nuke()
+                    except KeyError:
+                        pass
+        self.pconn.nuke()
 
 
     def __str__(self):
-        return 'Worker{}@{}'.format(self.id, self.hostname)
+        return 'Worker{}@{}'.format(self.id, self.desc.hostname)
 
 
     def set_active(self, new_val):
@@ -87,16 +137,17 @@ class Worker(object):
         logging.info('{}{}'.format(plusminus[int(new_val)], self))
         self._active = new_val
 
-        for key in self.keys:
+        for key in self.desc.keys:
+            workers = available_workers_by_key.setdefault(key, [])
             if new_val:
-                workers = workers_by_key.setdefault(key, [])
                 workers.append(self)
                 g_cvar.notify()
             else:
-                workers = workers_by_key[key]
                 workers.remove(self)
                 if not workers:
-                    del workers_by_key[key]
+                    del available_workers_by_key[key]
+
+        stats_changed()
 
 # --
 
@@ -108,40 +159,117 @@ def job_accept(pconn):
 
         job = Job(pconn, hostname, key)
         while True:
-            # On recv, request new worker.
             # Remote will kill socket if its done.
-            pconn.recv_t(BOOL_T)
-            with g_cvar:
-                job.set_active(True)
-            continue
+            cmd = pconn.recv()
+            if cmd == b'job_workers':
+                info = JobWorkersDescriptor()
+                info.local_slots = 0
+                info.remote_slots = 0
+                with g_cvar:
+                    try:
+                        for worker in connected_workers_by_key[key]:
+                            worker_slots = worker.desc.max_slots
+                            if worker.desc.hostname == hostname:
+                                info.local_slots += worker_slots
+                            else:
+                                info.remote_slots += worker_slots
+                    except KeyError:
+                        pass
+                pconn.send(info.encode())
+                continue
 
+            elif cmd == b'request_worker':
+                with g_cvar:
+                    job.set_active(True)
+                continue
+
+            elif cmd == b'karma': # TODO: Something like this?
+                to_hostname = pconn.recv().decode()
+                points = pconn.recv_t(F64_T)
+                with g_cvar:
+                    add_karma_by_hostname(to_hostname, points)
+                    add_karma_by_hostname(hostname, -points)
+                continue
+
+            logging.warning('%s: Bad cmd: %s', job, cmd)
+            return
     except OSError:
         pass
     finally:
         if job:
-            with g_cvar:
-                job.set_active(False)
+            job.close()
 
 # --
 
 def worker_accept(pconn):
     worker = None
     try:
-        wap = WorkerAdvertPacket.decode(pconn.recv())
-        worker = Worker(pconn, wap.hostname, wap.keys, wap.addrs)
+        desc = WorkerDescriptor.decode(pconn.recv())
+        worker = Worker(pconn, desc)
 
         while pconn.alive:
             avail_slots = pconn.recv_t(F64_T)
             with g_cvar:
                 worker.avail_slots = avail_slots
-                logging.warning('{}.avail_slots = {:.2f}'.format(worker, worker.avail_slots))
+                logging.info('%s.avail_slots = %.2f', worker, worker.avail_slots)
+                stats_changed()
                 worker.set_active(bool(worker.avail_slots))
     except OSError:
         pass
     finally:
         if worker:
-            with g_cvar:
-                worker.set_active(False)
+            worker.close()
+
+# -
+
+def stats():
+    assert not g_cvar.acquire(False)
+    lines = ['Stats:']
+    lines.append(f'  {len(connected_workers)} workers:')
+    for w in connected_workers:
+        name = w.desc.hostname
+        lines.append(f'    slots: {w.avail_slots:.2f}/{w.desc.max_slots}\t{name}\t{w.desc.keys}')
+
+    lines.append(f'  {len(connected_workers_by_key)} keys:')
+    for (k,ws) in connected_workers_by_key.items():
+        avail_slots = 0
+        max_slots = 0
+        for w in ws:
+            avail_slots += w.avail_slots
+            max_slots += w.desc.max_slots
+        try:
+            outstanding = len(job_queue_by_key[k])
+        except KeyError:
+            outstanding = 0
+        lines.append(f'    slots: {avail_slots:.2f}/{max_slots}\toutstanding: {outstanding}\t{k}')
+    lines.append('')
+    return '\n'.join(lines)
+
+# -
+
+g_stats_cv = threading.Condition()
+g_stats_cv.update_pending = False
+
+def stats_changed():
+    with g_stats_cv:
+        g_stats_cv.update_pending = True
+        g_stats_cv.notify()
+
+
+def th_stats():
+    while True:
+        with g_stats_cv:
+            while not g_stats_cv.update_pending:
+                g_stats_cv.wait()
+            g_stats_cv.update_pending = False
+
+        with g_cvar:
+            s = stats()
+
+        logging.warning(s)
+        time.sleep(0.3)
+
+threading.Thread(target=th_stats, daemon=True).start()
 
 # --
 
@@ -150,7 +278,7 @@ def matchmake():
     next_jobs = sorted(next_jobs, key=lambda x: x.id)
     for job in next_jobs:
         try:
-            workers = workers_by_key[job.key]
+            workers = available_workers_by_key[job.key]
         except KeyError:
             continue
         assert len(workers)
@@ -167,31 +295,39 @@ def matchmake():
 
 
 def matchmake_loop():
-    with g_cvar:
-        while True:
-            (job, worker) = matchmake()
-            if not job:
-                info = 'Outstanding jobs:'
-                if job_queue_by_key:
-                    info = '\n'.join([info] +
-                        ['  {}: {}'.format(k, len(v)) for (k,v) in job_queue_by_key.items()])
-                else:
-                    info += ' None'
-                logging.warning(info)
-                g_cvar.wait()
-                continue
+    try:
+        with g_cvar:
+            while True:
+                (job, worker) = matchmake()
+                if not job:
+                    '''
+                    info = 'Outstanding jobs:'
+                    if job_queue_by_key:
+                        info = '\n'.join([info] +
+                            ['  {}: {}'.format(k, len(v)) for (k,v) in job_queue_by_key.items()])
+                    else:
+                        info += ' None'
+                    '''
+                    stats_changed()
+                    g_cvar.wait()
+                    continue
 
-            logging.warning('Matched ({}, {})'.format(job, worker))
+                logging.warning('Matched ({}, {})'.format(job, worker))
 
-            wap = WorkerAssignmentPacket()
-            wap.hostname = worker.hostname
-            wap.addrs = worker.addrs
-            try:
-                job.pconn.send(wap.encode())
-            except OSError:
-                logging.warning('Disconnect during matchmaking.')
-                job.pconn.nuke()
-                continue
+                wap = WorkerAssignmentPacket()
+                wap.hostname = worker.desc.hostname
+                wap.addrs = worker.desc.addrs
+                try:
+                    job.pconn.send(wap.encode())
+                except OSError:
+                    logging.warning('Disconnect during matchmaking.')
+                    job.pconn.nuke()
+                    continue
+    except Exception:
+        traceback.print_exc()
+    finally:
+        logging.critical('matchmake_loop crashed. Aborting...')
+        os.kill(os.getpid(), signal.SIGTERM)
 
 
 threading.Thread(target=matchmake_loop, daemon=True).start()
@@ -221,8 +357,6 @@ class MdnsListener(object):
 
     def remove_service(self, zc, s_type, name):
         print("Service %s removed" % (name,))
-
-
 
 # --
 

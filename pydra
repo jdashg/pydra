@@ -18,7 +18,6 @@ sys.argv = pydra_args
 
 import common
 import job_client
-import pydra_mod
 
 import logging
 import socket
@@ -31,15 +30,7 @@ job_client.LogToWorker.install()
 # --
 
 mod_name = sys.argv[-1]
-
-# --
-
 logging.debug('<<mod_name: %s>>', mod_name)
-
-mod = pydra_mod.LoadModule(mod_name)
-
-def fn_dispatch(subkey, *args):
-    return job_client.dispatch(mod_name, subkey, mod.pydra_job_client, *args)
-
-ok = mod.pydra_shim(fn_dispatch, *mod_args)
+pi = job_client.PydraInterface(mod_name)
+ok = pi.shim(*mod_args)
 exit(int(not ok))

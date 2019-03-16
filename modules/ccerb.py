@@ -92,7 +92,7 @@ class ExShimOut(Exception):
 
 # --
 
-def process_args(cc_args):
+def extract_cc_preproc_args(cc_args):
     args = list(cc_args)
     if not args:
         raise ExShimOut('no cc_args')
@@ -297,33 +297,36 @@ def pydra_get_subkeys():
 
 # -
 
+def write_files_and_discard(root_dir, files):
+    root_dir = pathlib.Path(root_dir)
+    paths = [root_dir / rel_path for (rel_path, data) in files]
+    for (path, rp_and_data) in zip(paths, files):
+        parent = pathlib.Path(path.parent)
+        parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(rp_and_data[1])
+        logging.debug('<wrote %s (%i bytes)>', path, len(rp_and_data[1]))
+        rp_and_data[1] = None # Discard.
+    assert not files or not files[0][1]
+    return paths
+
+
 def read_files(root_dir):
+    root_dir = pathlib.Path(root_dir)
     ret = []
-    for cur_root, cur_dirs, cur_files in os.walk(root_dir):
-        for x in cur_files:
-            path = os.path.join(cur_root, x)
-            with open(path, 'rb') as f:
-                data = f.read()
-            logging.debug('<read {} ({} bytes)>'.format(path, len(data)))
+    for path in root_dir.rglob('*'):
+        if path.is_dir():
+            continue
 
-            rel_path = os.path.relpath(path, root_dir)
-            ret.append([rel_path, data])
+        data = path.read_bytes()
+        logging.debug('<read {} ({} bytes)>'.format(path, len(data)))
+
+        rel_path = str(path.relative_to(root_dir))
+        ret.append([rel_path, data])
     return ret
-
-
-def write_files(root_dir, files):
-    for (file_rel_path, file_data) in files:
-        dir_name = os.path.dirname(file_rel_path)
-        if dir_name:
-            os.makedirs(dir_name)
-        file_path = os.path.join(root_dir, file_rel_path)
-        with open(file_path, 'wb') as f:
-            f.write(file_data)
-        logging.debug('<wrote {} ({} bytes)>'.format(file_path, len(file_data)))
 
 # -
 
-def pydra_shim(fn_dispatch, *mod_args):
+def pydra_shim(pydra_iface, *mod_args):
     t = MsTimer()
 
     logging.debug('<mod_args: {}>'.format(mod_args))
@@ -342,7 +345,7 @@ def pydra_shim(fn_dispatch, *mod_args):
 
         # -
 
-        (preproc_args, compile_args, source_file_name) = process_args(cc_args)
+        (preproc_args, compile_args, source_file_name) = extract_cc_preproc_args(cc_args)
 
         logging.info('  {}: ({}) Preproc...'.format(source_file_name, t.time()))
         logging.debug('    {}: mod_args: {}'.format(source_file_name, preproc_args))
@@ -352,6 +355,13 @@ def pydra_shim(fn_dispatch, *mod_args):
         has_show_includes = '-showIncludes' in preproc_args
         if has_show_includes:
             preproc_args.append('-nologo')
+
+        # -
+
+        try:
+            job = pydra_iface.register_job(cc_key)
+        except OSError as e:
+            raise ExShimOut(f'!server_resolver.register_job: {e}', logging.error)
 
         # -
 
@@ -372,13 +382,24 @@ def pydra_shim(fn_dispatch, *mod_args):
 
         # -
 
-        ret = fn_dispatch(cc_key, compile_args, source_file_name, preproc_data)
-        if ret == None:
-            raise ExShimOut('dispatch failed', logging.error)
-        (retcode, stdout, stderr, output_files) = ret
+        try:
+            while True:
+                ret = job.dispatch(compile_args, source_file_name, preproc_data)
+                if ret:
+                    break
+        except OSError:
+            raise ExShimOut('Server disconnected:\n' + traceback.format_exc(), logging.warning)
+        finally:
+            job.server_pconn.nuke() # Done.
+
+        preproc_data = None # Discard.
+
+        # -
+
+        (retcode, stdout, stderr, output_files, compile_time) = ret
         total_bytes = sum([len(x) for (_,x) in output_files])
-        logging.info('  {}: ({}) Dispatch complete. ({} bytes, {} files) Writing...'.format(
-                source_file_name, t.time(), total_bytes, len(output_files)))
+        logging.info('  {}: ({}/{}) Dispatch complete. ({} bytes, {} files) Writing...'.format(
+                source_file_name, compile_time, t.time(), total_bytes, len(output_files)))
 
         # -
 
@@ -386,14 +407,20 @@ def pydra_shim(fn_dispatch, *mod_args):
             if name.endswith('.pdb'):
                 assert not pathlib.Path(name).exists()
 
-        write_files(os.getcwd(), output_files)
+        write_files_and_discard(os.getcwd(), output_files)
 
         sys.stdout.buffer.write(stdout_prefix)
         sys.stdout.buffer.write(stdout)
         sys.stderr.buffer.write(stderr)
         total_time = t.time()
-        preproc_percent = int(100.0 * float(preproc_time) / float(total_time))
-        logging.warning('Client: {}: ({}, {}={}% preproc) Complete.'.format(source_file_name, total_time, preproc_time, preproc_percent))
+        preproc_p = int(100.0 * float(preproc_time) / float(total_time))
+        compile_p = int(100.0 * float(compile_time) / float(total_time))
+        overhead_p = 100 - preproc_p - compile_p
+        overhead = float(total_time) - float(preproc_time) - float(compile_time)
+        overhead = MsTimer.Res(overhead)
+        logging.warning('Client: %s: (%s, %i%% preproc, %i%% compile, %s=%i%% overhead) Complete.',
+                source_file_name, total_time, preproc_p, compile_p, overhead,
+                overhead_p)
         exit(retcode)
     except ExShimOut as e:
         e.log(mod_args)
@@ -418,19 +445,22 @@ class ScopedTempDir:
 
 def run_in_temp_dir(input_files, args):
     with ScopedTempDir() as temp_dir:
-        write_files(temp_dir.path, input_files)
+        written_paths = write_files_and_discard(temp_dir.path, input_files)
 
         logging.debug('<<running: {}>>'.format(args))
-        p = subprocess.run(args, cwd=temp_dir.path, capture_output=True)
+        t = MsTimer()
+        p = subprocess.Popen(args, cwd=temp_dir.path, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
+        nice_down(p.pid)
+        (stdout, stderr) = p.communicate()
+        compile_time = t.time()
 
-        for (file_rel_path, _) in input_files:
-            file_path = os.path.join(temp_dir.path, file_rel_path)
-            os.remove(file_path)
-            continue
+        for path in written_paths:
+            path.unlink()
 
         output_files = read_files(temp_dir.path)
 
-    return (p.returncode, p.stdout, p.stderr, output_files)
+    return (p.returncode, stdout, stderr, output_files, compile_time)
 
 # -
 
@@ -494,6 +524,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
 
     # -
 
+    compile_time = MsTimer.Res(pconn.recv_t(F64_T))
     retcode = pconn.recv_t(I32_T)
     stdout = pconn.recv()
     stderr = pconn.recv()
@@ -516,7 +547,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
         for n_d in output_files:
             n_d[1] = decompress(n_d[1], n_d[0])
 
-    return (retcode, stdout, stderr, output_files)
+    return (retcode, stdout, stderr, output_files, compile_time)
 
 
 def pydra_job_worker(pconn, worker_hostname, subkey):
@@ -536,8 +567,9 @@ def pydra_job_worker(pconn, worker_hostname, subkey):
     for n_d in input_files:
         n_d[1] = decompress(n_d[1], n_d[0])
 
-    (retcode, stdout, stderr, output_files) = run_in_temp_dir(input_files, compile_args)
+    (retcode, stdout, stderr, output_files, compile_time) = run_in_temp_dir(input_files, compile_args)
 
+    pconn.send_t(F64_T, compile_time.val)
     pconn.send_t(I32_T, retcode)
     pconn.send(stdout)
     pconn.send(stderr)

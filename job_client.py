@@ -27,24 +27,23 @@ class LogToWorker(logging.Handler):
 
     def emit(self, record):
         text = self.format(record).encode()
-        with self.lock:
-            try:
+        try:
+            with self.lock:
                 if self.pconn == None:
                     self.pconn = False
                     conn = nu.connect_any([self.addr], timeout=CONFIG['TIMEOUT_TO_LOG'])
                     if conn:
                         self.pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
 
-                if not self.pconn:
-                    return
-
-                #print('sending', text)
+            if self.pconn:
                 self.pconn.send(text)
-                #print('sent')
-            except OSError as e:
-                output = ['LogToWorker failed: {}'.format(e).encode()]
-                output += [b'|' + x for x in text.split(b'\n')]
-                sys.stderr.buffer.write(b'\n'.join(output))
+                return
+        except OSError:
+            pass
+
+        log_path = PYDRA_HOME / 'failsafe.log'
+        with log_path.open('ab', buffering=0) as f:
+            f.write(text.decode())
 
 
     @staticmethod
@@ -57,51 +56,69 @@ class LogToWorker(logging.Handler):
             backup_handler.setLevel(logging.CRITICAL)
         logger.addHandler(backup_handler)
 
-# --
+# -----------------
 
-def dispatch(mod_name, subkey, fn_pydra_job_client, *args):
-    key = make_key(mod_name, subkey)
+class PydraInterface(object):
+    def __init__(self, mod_name):
+        self.mod_name = mod_name
+        self.python_module = LoadPydraModule(mod_name)
 
-    timeout = CONFIG['TIMEOUT_CLIENT_TO_SERVER']
-    addr = job_server_addr(timeout)
-    if not addr:
-        logging.error('Failed to resolve mDNS job_server.')
-        return None
-    server_conn = nu.connect_any([addr[:2]], timeout=timeout)
-    if not server_conn:
-        logging.error('Failed to connect to server: {}'.format(addr))
-        return None
 
-    try:
-        server_pconn = nu.PacketConn(server_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
-        server_pconn.send(b'job')
+    def shim(self, *args):
+        return self.python_module.pydra_shim(self, *args)
 
-        server_pconn.send(CONFIG['HOSTNAME'].encode())
-        server_pconn.send(key)
 
-        while True:
-            server_pconn.send_t(BOOL_T, False)
-            wap = WorkerAssignmentPacket.decode(server_pconn.recv())
+    def register_job(self, subkey):
+        timeout = CONFIG['TIMEOUT_CLIENT_TO_SERVER']
+        addr = job_server_addr(timeout)
+        if not addr:
+            raise OSError('Failed to resolve mDNS job_server.')
+        conn = nu.connect_any([addr[:2]], timeout=timeout)
+        if not conn:
+            raise OSError(f'Failed to connect to server: {addr}')
 
-            try:
-                addrs = [x.addr for x in wap.addrs]
-                worker_conn = nu.connect_any(addrs, timeout=CONFIG['TIMEOUT_TO_WORKER'])
-                if not worker_conn:
-                    logging.error('Failed to connect to worker: {}@{}'.format(wap.hostname, addrs))
-                    continue
-                worker_pconn = nu.PacketConn(worker_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+        pconn = nu.PacketConn(conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+        pconn.send(b'job')
 
-                worker_pconn.send(CONFIG['HOSTNAME'].encode())
-                worker_pconn.send(key)
+        job = RegisteredJob(self, subkey, pconn)
 
-                return fn_pydra_job_client(worker_pconn, subkey, *args)
-            except OSError:
-                pass
-            finally:
-                worker_pconn.nuke()
-    except OSError:
-        logging.warning('server_conn died:\n' + traceback.format_exc())
-    finally:
-        server_pconn.nuke()
-    return None
+        pconn.send(CONFIG['HOSTNAME'].encode())
+        pconn.send(job.key)
+        return job
 
+# -
+
+class RegisteredJob(object):
+    def __init__(self, iface, subkey, server_pconn):
+        self.iface = iface
+        self.subkey = subkey
+        self.server_pconn = server_pconn
+        self.key = make_key(iface.mod_name, subkey)
+
+
+    def job_workers(self):
+        self.server_pconn.send(b'job_workers')
+        return JobWorkersDescriptor.decode(self.server_pconn.recv())
+
+
+    def dispatch(self, *args, **kwargs):
+        self.server_pconn.send(b'request_worker')
+        wap = WorkerAssignmentPacket.decode(self.server_pconn.recv())
+
+        addrs = [x.addr for x in wap.addrs]
+        worker_conn = nu.connect_any(addrs, timeout=CONFIG['TIMEOUT_TO_WORKER'])
+        if not worker_conn:
+            logging.error('Failed to connect to worker: %s@%s', wap.hostname, addrs)
+            return None
+
+        worker_pconn = nu.PacketConn(worker_conn, CONFIG['KEEPALIVE_TIMEOUT'], True)
+        try:
+            worker_pconn.send(CONFIG['HOSTNAME'].encode())
+            worker_pconn.send(self.key)
+
+            fn_job_client = self.iface.python_module.pydra_job_client
+            return fn_job_client(worker_pconn, self.subkey, *args, **kwargs)
+        except OSError:
+            return None
+        finally:
+            worker_pconn.nuke()

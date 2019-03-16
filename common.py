@@ -17,7 +17,7 @@ import traceback
 
 # --
 
-SEMVER_MAJOR = 3
+SEMVER_MAJOR = 4
 nu.PacketConn.MAGIC += nu.pack_t(nu.U32_T, SEMVER_MAJOR)
 
 PYDRA_HOME = pathlib.Path.home() / '.pydra'
@@ -171,23 +171,23 @@ def walk_path(root):
 
 # --
 
-def nice_down():
+def nice_down(pid=None):
+    try:
+        import psutil
+    except ModuleNotFoundError:
+        logging.warning('nice_down() requires psutil. (pip install psutil)')
+        return
+    p = psutil.Process(pid)
+
     if sys.platform == 'win32':
-        try:
-            import psutil
-            p = psutil.Process()
-            p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-            return
-        except ModuleNotFoundError:
-            logging.warning('nice_down() on Windows require psutil. (py -3 -m pip install psutil)')
-            pass
-    else:
-        try:
-            os.nice(10)
-            return
-        except PermissionError:
-            pass
-    logging.warning('Warning: nice_down failed.')
+        p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        return
+
+    try:
+        p.nice(10)
+        return
+    except PermissionError:
+        logging.warning('Warning: p.nice() failed.')
 
 # --
 
@@ -204,29 +204,20 @@ class Packetable(object):
         ret.decode_from(br)
         return ret
 
-
-    def send_encode(self, pc):
-        pc.send(self.encode())
-
-
-    @classmethod
-    def recv_decode(class_, pc):
-        return class_.decode(pc.recv())
-
 # --
 
 class WorkerAssignmentPacket(Packetable):
     def encode_into(self, bw):
         bw.pack_bytes(self.hostname.encode())
 
-        bw.pack_t(U64_T, len(self.addrs))
+        bw.pack_t(U16_T, len(self.addrs))
         [bw.pack_bytes(x.encode()) for x in self.addrs]
 
 
     def decode_from(self, br):
         self.hostname = br.unpack_bytes().decode()
 
-        num_addr = br.unpack_t(U64_T)
+        num_addr = br.unpack_t(U16_T)
         self.addrs = [Address.decode(br.unpack_bytes()) for _ in range(num_addr)]
 
 # --
@@ -248,25 +239,38 @@ class Address(Packetable):
 
 # --
 
-class WorkerAdvertPacket(Packetable):
+class WorkerDescriptor(Packetable):
     def encode_into(self, bw):
         bw.pack_bytes(self.hostname.encode())
+        bw.pack_t(U16_T, self.max_slots)
 
-        bw.pack_t(U64_T, len(self.keys))
+        bw.pack_t(U16_T, len(self.keys))
         [bw.pack_bytes(x) for x in self.keys]
 
-        bw.pack_t(U64_T, len(self.addrs))
+        bw.pack_t(U16_T, len(self.addrs))
         [bw.pack_bytes(x.encode()) for x in self.addrs]
 
 
     def decode_from(self, br):
         self.hostname = br.unpack_bytes().decode()
+        self.max_slots = br.unpack_t(U16_T)
 
-        num_keys = br.unpack_t(U64_T)
+        num_keys = br.unpack_t(U16_T)
         self.keys = [br.unpack_bytes() for _ in range(num_keys)]
 
-        num_addr = br.unpack_t(U64_T)
+        num_addr = br.unpack_t(U16_T)
         self.addrs = [Address.decode(br.unpack_bytes()) for _ in range(num_addr)]
+
+# --
+
+class JobWorkersDescriptor(Packetable):
+    def encode_into(self, bw):
+        bw.pack_t(U16_T, self.local_slots)
+        bw.pack_t(U16_T, self.remote_slots)
+
+    def decode_from(self, br):
+        self.local_slots = br.unpack_t(U16_T)
+        self.remote_slots = br.unpack_t(U16_T)
 
 # --
 
@@ -328,3 +332,45 @@ def job_server_addr(timeout):
     host = socket.inet_ntop(socket.AF_INET, info.address)
     logging.info('mDNS resolved %s as %s (%s).', JOB_SERVER_MDNS_SERVICE, host, info.server)
     return (host, info.port, info.server)
+
+# --
+
+MODULE_DIRS = [
+    PYDRA_HOME / 'modules',
+    pathlib.Path(__file__).parent / 'modules',
+]
+
+def LoadPydraModule(mod_name):
+    file_name = mod_name + '.py'
+
+    for x in MODULE_DIRS:
+        path = x / file_name
+        path = path.resolve()
+        if path.exists():
+            break
+    else:
+        raise FileNotFoundError(path_bases[0] / file_name)
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(path.stem, path.as_posix())
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return module
+
+
+def LoadPydraModules():
+    mod_names = set()
+    for d in MODULE_DIRS:
+        if d.exists():
+            names = [x.stem for x in d.iterdir() if x.suffix == '.py']
+            mod_names.update(names)
+
+    mods = {}
+    for name in mod_names:
+        try:
+            mods[name] = LoadPydraModule(name)
+        except FileNotFoundError:
+            pass
+    return mods
