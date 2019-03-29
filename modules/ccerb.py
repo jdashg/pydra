@@ -396,7 +396,7 @@ def pydra_shim(pydra_iface, *mod_args):
 
         # -
 
-        (retcode, stdout, stderr, output_files, compile_time) = ret
+        (retcode, stdout, stderr, output_files, client_timer, compile_time) = ret
         total_bytes = sum([len(x) for (_,x) in output_files])
         logging.info('  {}: ({}/{}) Dispatch complete. ({} bytes, {} files) Writing...'.format(
                 source_file_name, compile_time, t.time(), total_bytes, len(output_files)))
@@ -412,14 +412,22 @@ def pydra_shim(pydra_iface, *mod_args):
         sys.stdout.buffer.write(stdout_prefix)
         sys.stdout.buffer.write(stdout)
         sys.stderr.buffer.write(stderr)
-        total_time = t.time()
-        preproc_p = int(100.0 * float(preproc_time) / float(total_time))
-        compile_p = int(100.0 * float(compile_time) / float(total_time))
-        overhead_p = 100 - preproc_p - compile_p
-        overhead = float(total_time) - float(preproc_time) - float(compile_time)
+
+        # -
+
+        client_time = client_timer.time()
+
+        compiler_time = float(preproc_time) + float(compile_time)
+        active_time = float(preproc_time) + float(client_time) # Ignore time waiting for dispatch.
+        overhead = active_time - compiler_time
+
+        preproc_p = int(100.0 * float(preproc_time) / compiler_time)
+        overhead_p = int(100.0 * overhead / active_time)
+
+        active_time = MsTimer.Res(active_time)
         overhead = MsTimer.Res(overhead)
-        logging.warning('Client: %s: (%s, %i%% preproc, %i%% compile, %s=%i%% overhead) Complete.',
-                source_file_name, total_time, preproc_p, compile_p, overhead,
+        logging.warning('Client: %s: (%s, %i%% preproc, %s=%i%% overhead) Complete.',
+                source_file_name, active_time, preproc_p, overhead,
                 overhead_p)
         exit(retcode)
     except ExShimOut as e:
@@ -516,6 +524,7 @@ def decompress(data, name=''):
 # -
 
 def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data_compressed):
+    client_timer = MsTimer()
     for x in compile_args:
         pconn.send(x.encode())
     pconn.send(b'')
@@ -547,7 +556,7 @@ def pydra_job_client(pconn, subkey, compile_args, source_file_name, preproc_data
         for n_d in output_files:
             n_d[1] = decompress(n_d[1], n_d[0])
 
-    return (retcode, stdout, stderr, output_files, compile_time)
+    return (retcode, stdout, stderr, output_files, client_timer, compile_time)
 
 
 def pydra_job_worker(pconn, worker_hostname, subkey):
