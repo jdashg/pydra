@@ -426,9 +426,9 @@ def pydra_shim(pydra_iface, *mod_args):
 
         active_time = MsTimer.Res(active_time)
         overhead = MsTimer.Res(overhead)
-        logging.warning('Client: %s: (%s, %i%% preproc, %s=%i%% overhead) Complete.',
-                source_file_name, active_time, preproc_p, overhead,
-                overhead_p)
+        logging.warning('Client: %s: (%s w/ %s=%i%% overhead, %s=%i%% preproc) Complete.',
+                source_file_name, active_time, overhead, overhead_p, preproc_time,
+                preproc_p)
         exit(retcode)
     except ExShimOut as e:
         e.log(mod_args)
